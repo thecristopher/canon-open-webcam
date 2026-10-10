@@ -5,20 +5,6 @@ import CoreVideo
 import Foundation
 import ImageIO
 
-public struct FrameOptions: Codable, Equatable, Sendable {
-    /// Apps already mirror your self view, so mirroring here flips what everyone else sees.
-    public var mirror = false
-    /// Digital zoom toward the center, 1 means the full live view.
-    public var zoom = 1.0
-
-    public static let zoomRange = 1.0...3.0
-
-    public init(mirror: Bool = false, zoom: Double = 1.0) {
-        self.mirror = mirror
-        self.zoom = zoom
-    }
-}
-
 /// Turns camera JPEGs (and the "no camera" card) into 1080p BGRA frames for the virtual camera.
 public final class FrameRenderer {
     public let outputSize: CGSize
@@ -65,21 +51,47 @@ public final class FrameRenderer {
         return buffer
     }
 
-    /// Lanczos plus a light sharpen keeps edges and texture crisp when 1024x576 becomes 1080p.
+    /// Color work happens on the small camera frame, then Lanczos and a sharpen take it to 1080p.
     static func upscaled(_ image: CIImage, to target: CGSize, options: FrameOptions) -> CIImage {
-        let full = fillTransform(from: image.extent.size, to: target, options: FrameOptions(zoom: options.zoom))
+        var framing = options
+        framing.mirror = false
+        let full = fillTransform(from: image.extent.size, to: target, options: framing)
         let scale = full.a
-        // Only upscale the part that ends up on screen, so zooming in doesn't cost a giant intermediate
+        // Only process the part that ends up on screen, so zooming in doesn't cost a giant intermediate
         let visible = CGRect(x: -full.tx / scale, y: -full.ty / scale, width: target.width / scale, height: target.height / scale)
-        let source = image.cropped(to: visible.insetBy(dx: -2, dy: -2))
-        var result = source
+        var result = adjustColors(image.cropped(to: visible.insetBy(dx: -2, dy: -2)), options: options)
             .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1])
             .transformed(by: CGAffineTransform(translationX: full.tx, y: full.ty))
-            .applyingFilter("CISharpenLuminance", parameters: [kCIInputSharpnessKey: 0.4, kCIInputRadiusKey: 1.5])
+        if options.sharpness > 0 {
+            result = result.applyingFilter("CISharpenLuminance", parameters: [kCIInputSharpnessKey: options.sharpness, kCIInputRadiusKey: 1.5])
+        }
         if options.mirror {
             result = result.transformed(by: CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: target.width, ty: 0))
         }
         return result
+    }
+
+    /// Brightness, contrast and saturation in one pass, then warmth and tint as a white balance shift.
+    static func adjustColors(_ image: CIImage, options: FrameOptions) -> CIImage {
+        guard options.hasColorAdjustments else { return image }
+        let controlled = image.applyingFilter("CIColorControls", parameters: [
+            kCIInputBrightnessKey: options.brightness * 0.25,
+            kCIInputContrastKey: 1 + options.contrast * 0.5,
+            kCIInputSaturationKey: 1 + options.saturation,
+        ])
+        guard options.warmth != 0 || options.tint != 0 else { return controlled }
+        // Measured: a lower target temperature warms, a positive target tint goes green
+        return controlled.applyingFilter("CITemperatureAndTint", parameters: [
+            "inputNeutral": CIVector(x: 6500, y: 0),
+            "inputTargetNeutral": CIVector(x: 6500 - options.warmth * 2000, y: -options.tint * 50),
+        ])
+    }
+
+    /// A fresh copy of a frame. The virtual camera quietly drops a buffer it was just handed, so repeats need their own.
+    public func copy(_ frame: CVPixelBuffer) -> CVPixelBuffer? {
+        guard let buffer = makeBuffer() else { return nil }
+        context.render(CIImage(cvPixelBuffer: frame), to: buffer, bounds: CGRect(origin: .zero, size: outputSize), colorSpace: colorSpace)
+        return buffer
     }
 
     /// A dark card with a message, shown whenever there's no live picture to send.
@@ -106,13 +118,20 @@ public final class FrameRenderer {
     static func fillTransform(from source: CGSize, to target: CGSize, options: FrameOptions) -> CGAffineTransform {
         let zoom = min(max(options.zoom, FrameOptions.zoomRange.lowerBound), FrameOptions.zoomRange.upperBound)
         let scale = max(target.width / source.width, target.height / source.height) * zoom
-        let offsetX = (target.width - source.width * scale) / 2
-        let offsetY = (target.height - source.height * scale) / 2
+        let centeredX = (target.width - source.width * scale) / 2
+        let centeredY = (target.height - source.height * scale) / 2
+        // Panning slides the picture across whatever overflows the frame, never past its edges
+        let offsetX = centeredX + clampedPan(options.panX) * centeredX
+        let offsetY = centeredY + clampedPan(options.panY) * centeredY
         var transform = CGAffineTransform(scaleX: scale, y: scale).concatenating(CGAffineTransform(translationX: offsetX, y: offsetY))
         if options.mirror {
             transform = transform.concatenating(CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: target.width, ty: 0))
         }
         return transform
+    }
+
+    private static func clampedPan(_ pan: Double) -> Double {
+        min(max(pan, FrameOptions.adjustmentRange.lowerBound), FrameOptions.adjustmentRange.upperBound)
     }
 
     private func makeBuffer() -> CVPixelBuffer? {

@@ -18,7 +18,7 @@ public final class UninstallerModel: ObservableObject {
     @Published public var problem: String?
     public let canonUtilityIsPresent: Bool
 
-    public init(pieces: [String] = LaunchAgent.installedPieces(), canonUtilityIsPresent: Bool = LaunchAgent.canonUtilityIsPresent) {
+    public init(pieces: [String] = SetupActions.installedPieces(), canonUtilityIsPresent: Bool = LaunchAgent.canonUtilityIsPresent) {
         self.pieces = pieces
         self.canonUtilityIsPresent = canonUtilityIsPresent
         stage = pieces.isEmpty ? .nothingInstalled : .ready

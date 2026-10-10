@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds "Install Canon Webcam" and "Uninstall Canon Webcam", then wraps both in a disk image.
+# Builds Canon Webcam.app, tucks it inside "Install Canon Webcam", adds "Uninstall Canon Webcam",
+# and wraps the installer and uninstaller in a disk image.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,8 +29,8 @@ make_icns() {
 
 # Wraps a SwiftPM executable in a double clickable .app bundle
 make_app() {
-    local name="$1" executable="$2" identifier="$3" icon="$4" camera_reason="$5"
-    local app="$STAGE/$name.app"
+    local folder="$1" name="$2" executable="$3" identifier="$4" icon="$5" camera_reason="$6" menu_bar_only="$7"
+    local app="$folder/$name.app"
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
     cp "$RELEASE/$executable" "$app/Contents/MacOS/$executable"
     cp "$WORK/$icon.icns" "$app/Contents/Resources/AppIcon.icns"
@@ -49,22 +50,32 @@ make_app() {
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSCameraUsageDescription</key><string>$camera_reason</string>
+    <key>LSUIElement</key><$menu_bar_only/>
+    <key>NSHumanReadableCopyright</key><string>Made by Cristopher Cervantes. Not affiliated with or endorsed by Canon Inc.</string>
 </dict>
 </plist>
 PLIST
 }
 
 echo "Drawing icons"
+make_icns app
 make_icns installer
 make_icns uninstaller
 
-echo "Assembling apps"
-make_app "Install Canon Webcam" CanonWebcamInstaller dev.canon-open-webcam.installer installer \
-    "Shows a live preview so you can check your Canon is working."
-make_app "Uninstall Canon Webcam" CanonWebcamUninstaller dev.canon-open-webcam.uninstaller uninstaller \
-    "Not used, the uninstaller never opens the camera."
-# The installer carries the engine, so it works on a Mac without this repo
-cp "$RELEASE/canon-webcam" "$STAGE/Install Canon Webcam.app/Contents/Resources/canon-webcam"
+echo "Assembling Canon Webcam.app"
+# Menu bar only by default, it shows a Dock icon by itself while its window is open
+make_app "$WORK" "Canon Webcam" CanonWebcam dev.canon-open-webcam.app app \
+    "Shows you exactly what your camera sends to Zoom, Meet and FaceTime." true
+cp "$RELEASE/canon-webcam" "$WORK/Canon Webcam.app/Contents/Resources/canon-webcam"
+codesign --force --deep --sign - "$WORK/Canon Webcam.app"
+
+echo "Assembling the installer and uninstaller"
+make_app "$STAGE" "Install Canon Webcam" CanonWebcamInstaller dev.canon-open-webcam.installer installer \
+    "Not used, the installer never opens the camera." false
+make_app "$STAGE" "Uninstall Canon Webcam" CanonWebcamUninstaller dev.canon-open-webcam.uninstaller uninstaller \
+    "Not used, the uninstaller never opens the camera." false
+# The installer carries the whole app, so it works on a Mac without this repo
+cp -R "$WORK/Canon Webcam.app" "$STAGE/Install Canon Webcam.app/Contents/Resources/"
 
 echo "Signing for this Mac"
 for app in "$STAGE"/*.app; do
@@ -72,7 +83,8 @@ for app in "$STAGE"/*.app; do
 done
 
 echo "Making the disk image"
+mv "$WORK/Canon Webcam.app" "$DIST/Canon Webcam.app"
 rm -rf "$WORK"
 hdiutil create -quiet -volname "Canon Webcam" -srcfolder "$STAGE" -ov -format UDZO "$DIST/Canon Webcam.dmg"
 
-echo "Done: $DIST/Canon Webcam.dmg"
+echo "Done: $DIST/Canon Webcam.dmg (and $DIST/Canon Webcam.app for a quick look)"

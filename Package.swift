@@ -12,6 +12,7 @@ let package = Package(
     platforms: [.macOS("26.0")],
     products: [
         .executable(name: "canon-webcam", targets: ["canon-webcam"]),
+        .executable(name: "CanonWebcam", targets: ["CanonWebcamApp"]),
         .executable(name: "CanonWebcamInstaller", targets: ["CanonWebcamInstaller"]),
         .executable(name: "CanonWebcamUninstaller", targets: ["CanonWebcamUninstaller"]),
     ],
@@ -31,6 +32,7 @@ let package = Package(
         .target(name: "WebcamEngine", dependencies: ["CanonPTP", "CanonUSB"]),
         .target(name: "SetupKit", dependencies: ["WebcamEngine"]),
         .executableTarget(name: "canon-webcam", dependencies: ["WebcamEngine"]),
+        .executableTarget(name: "CanonWebcamApp", dependencies: ["SetupKit"]),
         .executableTarget(name: "CanonWebcamInstaller", dependencies: ["SetupKit"]),
         .executableTarget(name: "CanonWebcamUninstaller", dependencies: ["SetupKit"]),
         .testTarget(name: "CanonPTPTests", dependencies: ["CanonPTP"]),

@@ -8,8 +8,8 @@ import Testing
 }
 
 @Test func mirrorUnderstandsOnAndOff() {
-    #expect(EngineCommand.from(.set("mirror", to: "on")) == .success(.setMirror(true)))
-    #expect(EngineCommand.from(.set("mirror", to: "off")) == .success(.setMirror(false)))
+    #expect(EngineCommand.from(.set("mirror", to: "on")) == .success(.setOption("mirror", "on")))
+    #expect(EngineCommand.from(.set("mirror", to: "off")) == .success(.setOption("mirror", "off")))
 }
 
 @Test func mirrorRejectsMaybe() {
@@ -20,7 +20,7 @@ import Testing
 }
 
 @Test func zoomAcceptsAnXSuffix() {
-    #expect(EngineCommand.from(.set("zoom", to: "1.5x")) == .success(.setZoom(1.5)))
+    #expect(EngineCommand.from(.set("zoom", to: "1.5x")) == .success(.setOption("zoom", "1.5x")))
 }
 
 @Test func zoomPastThreeIsRefused() {

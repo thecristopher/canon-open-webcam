@@ -3,6 +3,7 @@ import SwiftUI
 
 public struct UninstallerView: View {
     @StateObject private var model: UninstallerModel
+    @Environment(\.dismiss) private var dismiss
 
     public init() {
         _model = StateObject(wrappedValue: UninstallerModel())
@@ -20,6 +21,7 @@ public struct UninstallerView: View {
             case .done: allGone
             case .nothingInstalled: nothingHere
             }
+            CreditFooter()
         }
         .padding(28)
         .frame(width: 520)
@@ -54,7 +56,7 @@ public struct UninstallerView: View {
                 .foregroundStyle(.secondary)
             if let problem = model.problem { ProblemNote(text: problem) }
             HStack {
-                Button("Cancel") { NSApplication.shared.terminate(nil) }
+                Button("Cancel") { dismiss() }
                     .controlSize(.large)
                     .keyboardShortcut(.cancelAction)
                 Spacer()
@@ -78,7 +80,7 @@ public struct UninstallerView: View {
             title: "Canon Webcam is gone",
             detail: model.restoreCanon
                 ? "Canon's EOS Webcam Utility comes back the next time you log in."
-                : "Your camera is back to being just a camera. You can delete this app now."
+                : "The app, the background engine and every file they made are gone. Your camera is back to being just a camera."
         )
     }
 

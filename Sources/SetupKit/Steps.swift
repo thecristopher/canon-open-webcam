@@ -85,9 +85,9 @@ public enum Checklist {
 
     private static func installStatus(_ facts: InstallerFacts, _ activity: Activity) -> StepStatus {
         if activity == .installing { return .working("Installing") }
-        if facts.installed { return .done("Installed, and starts by itself when you log in") }
+        if facts.installed { return .done("Installed, and opens quietly in your menu bar when you log in") }
         if !facts.driverReady { return .waitingOn("Set up the camera driver first") }
-        return .needsAction(button: "Install", detail: "Runs quietly in the background and wakes the camera only when an app needs it.")
+        return .needsAction(button: "Install", detail: "Adds the Canon Webcam app and starts it with your Mac. The camera only wakes when an app needs it.")
     }
 
     private static func cameraStatus(_ facts: InstallerFacts) -> StepStatus {

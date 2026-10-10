@@ -49,10 +49,6 @@ public final class InstallerModel: ObservableObject {
         SetupActions.openExtensionSettings()
     }
 
-    public func previewClosed() {
-        SetupActions.askEngineToRecheck()
-    }
-
     private func setUpDriver() {
         guard let facts else { return }
         if facts.obsInstalled {

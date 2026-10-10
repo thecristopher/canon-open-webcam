@@ -17,8 +17,12 @@ public enum CLICommand: Equatable, Sendable {
 
       canon-webcam [start] [--always-on]   run it (the camera wakes when an app opens it)
       canon-webcam status                  what the camera is doing, plus its settings
-      canon-webcam set <setting> <value>   iso, aperture, shutter, exposure, white-balance,
-                                           color-temp, mirror (on/off), zoom (1 to 3)
+      canon-webcam set <setting> <value>   camera: iso, aperture, shutter, exposure, white-balance, color-temp
+                                           picture: brightness, contrast, saturation, warmth, tint (-1 to 1),
+                                           sharpness (0 to 1), picture reset
+                                           framing: zoom (1 to 3), pan-x, pan-y (-1 to 1), mirror (on/off),
+                                           framing reset
+                                           output: fps (camera, 30 or 60)
       canon-webcam focus [auto|near|far] [1-3]
       canon-webcam doctor                  check everything is set up
       canon-webcam install [--always-on]   start at login and stay running

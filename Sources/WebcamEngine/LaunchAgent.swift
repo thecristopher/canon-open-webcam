@@ -128,7 +128,7 @@ public enum LaunchAgent {
         return canonServices.allSatisfy(disabled.contains)
     }
 
-    static var guiDomain: String { "gui/\(getuid())" }
+    public static var guiDomain: String { "gui/\(getuid())" }
 
     private static func disable(_ service: String) {
         // disable survives reboots, bootout stops the copy running right now
@@ -146,7 +146,7 @@ public enum LaunchAgent {
     }
 
     @discardableResult
-    static func launchctl(_ arguments: String...) -> (status: Int32, output: String) {
+    public static func launchctl(_ arguments: String...) -> (status: Int32, output: String) {
         run("/bin/launchctl", arguments)
     }
 }
