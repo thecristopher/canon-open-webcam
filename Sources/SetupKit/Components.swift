@@ -102,8 +102,8 @@ struct StepRow: View {
     }
 }
 
-/// Quits the app once its only window closes, the way a one job utility should.
-public final class SetupAppDelegate: NSObject, NSApplicationDelegate {
+/// For the standalone installer and uninstaller: one window, one job, gone when it closes.
+public final class QuitWhenClosedDelegate: NSObject, NSApplicationDelegate {
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }

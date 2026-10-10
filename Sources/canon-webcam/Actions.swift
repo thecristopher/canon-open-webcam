@@ -55,8 +55,12 @@ func describe(_ status: EngineStatus) -> String {
     if let model = status.model { lines.append("Camera:  \(model)") }
     if let lens = status.lens { lines.append("Lens:    \(lens)") }
     if status.framesPerSecond > 0 { lines.append(String(format: "Speed:   %.1f fps", status.framesPerSecond)) }
-    lines.append("Mirror:  \(status.mirror ? "on" : "off")")
-    lines.append(String(format: "Zoom:    %.1fx", status.zoom))
+    let options = status.options
+    lines.append("Mirror:  \(options.mirror ? "on" : "off")")
+    lines.append(String(format: "Framing: zoom %.1fx, pan %.1f, %.1f", options.zoom, options.panX, options.panY))
+    lines.append(String(format: "Picture: brightness %.2f, contrast %.2f, saturation %.2f, warmth %.2f, tint %.2f, sharpness %.2f",
+                        options.brightness, options.contrast, options.saturation, options.warmth, options.tint, options.sharpness))
+    lines.append("Output:  \(options.frameRate == 0 ? "every camera frame" : "\(options.frameRate) fps")")
     for name in status.settings.keys.sorted() {
         guard let setting = status.settings[name] else { continue }
         let choices = setting.choices.isEmpty ? "locked by the camera's mode" : setting.choices.joined(separator: " ")

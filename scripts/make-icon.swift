@@ -1,12 +1,13 @@
 import AppKit
 
-// Draws an app icon: a rounded gradient tile with the webcam symbol, plus a red badge for the uninstaller
+// Draws an app icon: a rounded gradient tile with the webcam symbol, with a badge for the installer and uninstaller
 let arguments = CommandLine.arguments
-guard arguments.count == 3, ["installer", "uninstaller"].contains(arguments[1]) else {
-    print("usage: make-icon.swift installer|uninstaller output.png")
+guard arguments.count == 3, ["app", "installer", "uninstaller"].contains(arguments[1]) else {
+    print("usage: make-icon.swift app|installer|uninstaller output.png")
     exit(2)
 }
-let isUninstaller = arguments[1] == "uninstaller"
+let kind = arguments[1]
+let isUninstaller = kind == "uninstaller"
 let size: CGFloat = 1024
 
 let bitmap = NSBitmapImageRep(
@@ -36,13 +37,19 @@ func drawSymbol(_ name: String, pointSize: CGFloat, colors: [NSColor], in rect: 
 // The second palette color paints the lens, so it reads as a camera instead of a white blob
 drawSymbol("web.camera.fill", pointSize: 400, colors: [colors[1], .white], in: tile)
 
-if isUninstaller {
+func drawBadge(color: NSColor, symbol: String) {
     let badge = NSRect(x: 650, y: 130, width: 260, height: 260)
     NSColor.white.setFill()
     NSBezierPath(ovalIn: badge.insetBy(dx: -14, dy: -14)).fill()
-    NSColor(calibratedRed: 0.95, green: 0.23, blue: 0.2, alpha: 1).setFill()
+    color.setFill()
     NSBezierPath(ovalIn: badge).fill()
-    drawSymbol("minus", pointSize: 150, colors: [.white], in: badge)
+    drawSymbol(symbol, pointSize: 150, colors: [.white], in: badge)
+}
+
+switch kind {
+case "installer": drawBadge(color: NSColor(calibratedRed: 0.2, green: 0.75, blue: 0.35, alpha: 1), symbol: "arrow.down")
+case "uninstaller": drawBadge(color: NSColor(calibratedRed: 0.95, green: 0.23, blue: 0.2, alpha: 1), symbol: "minus")
+default: break
 }
 
 NSGraphicsContext.restoreGraphicsState()

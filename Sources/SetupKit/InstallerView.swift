@@ -3,7 +3,7 @@ import SwiftUI
 
 public struct InstallerView: View {
     @StateObject private var model: InstallerModel
-    @State private var previewing = false
+    @Environment(\.dismiss) private var dismiss
 
     public init() {
         _model = StateObject(wrappedValue: InstallerModel())
@@ -23,15 +23,15 @@ public struct InstallerView: View {
                 if let problem = model.problem { ProblemNote(text: problem) }
                 if model.isFinished { finish }
             }
-            Text("Changed your mind later? Open Uninstall Canon Webcam and it cleans up everything.")
+            Text("Everything lives in the camera icon in your menu bar, including Uninstall if you ever change your mind.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
+            CreditFooter()
         }
         .padding(28)
         .frame(width: 560)
         .onAppear { model.startWatching() }
         .animation(.easeInOut(duration: 0.25), value: model.isFinished)
-        .animation(.easeInOut(duration: 0.25), value: previewing)
     }
 
     private var checklist: some View {
@@ -59,21 +59,13 @@ public struct InstallerView: View {
                     Image(systemName: "party.popper.fill").font(.title2).foregroundStyle(.orange)
                     Text("You're all set").font(.title3.weight(.semibold))
                 }
-                Text("Open Zoom, Meet, Teams or FaceTime and choose **OBS Virtual Camera** as your camera. Your Canon wakes up on its own whenever an app asks for it.")
+                Text("Canon Webcam is open, and its camera icon lives in your menu bar. In Zoom, Meet, Teams or FaceTime, choose **OBS Virtual Camera** as your camera.")
                     .fixedSize(horizontal: false, vertical: true)
-                if previewing {
-                    CameraPreview(onClose: model.previewClosed)
-                        .aspectRatio(16 / 9, contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    Text("Live from your camera. It takes a second or two to wake up.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
                 HStack {
-                    Button(previewing ? "Hide Preview" : "Test Camera") { previewing.toggle() }
+                    Button("Open Canon Webcam") { SetupActions.openApp() }
                         .controlSize(.large)
                     Spacer()
-                    Button("Done") { NSApplication.shared.terminate(nil) }
+                    Button("Done") { closeSetup() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
                         .keyboardShortcut(.defaultAction)
@@ -81,6 +73,11 @@ public struct InstallerView: View {
             }
             .padding(18)
         }
+    }
+
+    /// Inside the app this is just a window, as a standalone installer it's the whole app.
+    private func closeSetup() {
+        if Bundle.main.bundleIdentifier == SetupActions.appBundleID { dismiss() } else { NSApplication.shared.terminate(nil) }
     }
 
     private func secondaryTitle(for step: InstallerStep, status: StepStatus) -> String? {

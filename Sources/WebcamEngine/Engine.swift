@@ -21,6 +21,21 @@ public enum Phase: Equatable, Sendable {
         }
     }
 
+    var kind: PhaseKind {
+        switch self {
+        case .idle: return .idle
+        case .waitingForCamera: return .waitingForCamera
+        case .starting: return .starting
+        case .live: return .live
+        case .trouble: return .trouble
+        }
+    }
+
+    var troubleReason: String? {
+        if case .trouble(let reason) = self { return reason }
+        return nil
+    }
+
     var card: (title: String, detail: String) {
         switch self {
         case .idle, .waitingForCamera: return ("Waiting for your camera", "Plug in the Canon over USB and turn it on")
@@ -61,6 +76,7 @@ public final class Engine {
 
     private var lastFrameAt = Date()
     private var lastLoggedTrouble: String?
+    private lazy var steadyOutput = SteadyOutput(renderer: renderer)
     private var lastAcceptedSend = Date()
     private var situationCheck = Every(1)
     private var eventPoll = Every(0.5)
@@ -146,7 +162,8 @@ public final class Engine {
         for (command, reply) in pending {
             do {
                 let message = try execute(command)
-                config.log(message)
+                // Sliders send a stream of option changes, which would bury the log
+                if case .setOption = command {} else { config.log(message) }
                 publishStatus()
                 reply(.success(message, status: lock.withLock { snapshot }))
             } catch {
@@ -157,14 +174,10 @@ public final class Engine {
 
     private func execute(_ command: EngineCommand) throws -> String {
         switch command {
-        case .setMirror(let on):
-            options.mirror = on
+        case .setOption(let name, let value):
+            options = try options.applying(name, value).get()
             try optionsStore.save(options)
-            return "Mirror is \(on ? "on" : "off")."
-        case .setZoom(let zoom):
-            options.zoom = zoom
-            try optionsStore.save(options)
-            return String(format: "Zoom is %.1fx.", zoom)
+            return options.describe(name)
         case .setCamera(let setting, let input):
             let camera = try liveCamera(for: setting.rawValue)
             let choices = camera.state.choices(for: setting.property)
@@ -301,7 +314,7 @@ public final class Engine {
             let renderStart = Date()
             if let frame = renderer.render(jpeg: jpeg, options: options) {
                 stats.record(.render, since: renderStart)
-                send(frame)
+                deliver(frame)
             }
             if let summary = stats.summaryIfDue(at: Date()) { config.log(summary) }
         } catch {
@@ -312,7 +325,18 @@ public final class Engine {
         }
     }
 
+    /// Straight out at the camera's own pace, or handed to the steady beat when a frame rate is picked.
+    private func deliver(_ frame: CVPixelBuffer) {
+        steadyOutput.configure(sink: virtualCamera, framesPerSecond: options.frameRate)
+        if options.frameRate > 0 {
+            steadyOutput.offer(frame)
+        } else {
+            send(frame)
+        }
+    }
+
     private func releaseCamera() {
+        steadyOutput.clear()
         camera?.disconnect()
         camera = nil
         usb = nil
@@ -322,6 +346,7 @@ public final class Engine {
     private func goIdle() {
         guard virtualCamera != nil || camera != nil else { return }
         releaseCamera()
+        steadyOutput.configure(sink: nil, framesPerSecond: 0)
         virtualCamera = nil
         setPhase(.idle)
         config.log("No app is using the camera anymore, so it's resting.")
@@ -335,6 +360,7 @@ public final class Engine {
             lastAcceptedSend = Date()
         } else if Date().timeIntervalSince(lastAcceptedSend) > deadSinkLimit {
             config.log("The virtual camera stopped taking frames, reopening it.")
+            steadyOutput.configure(sink: nil, framesPerSecond: 0)
             self.virtualCamera = nil
         }
     }
@@ -376,7 +402,7 @@ public final class Engine {
             }
         }
         let status = EngineStatus(
-            state: phase.name, model: camera?.model, lens: camera?.state.lensName,
+            state: phase.name, kind: phase.kind, trouble: phase.troubleReason, model: camera?.model, lens: camera?.state.lensName,
             framesPerSecond: meter.framesPerSecond, appsWatching: virtualCamera != nil,
             options: options, settings: settings
         )

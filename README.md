@@ -39,17 +39,19 @@ brew install libusb   # only needed to build, the apps carry it inside
 make dist
 ```
 
-That makes `dist/Canon Webcam.dmg`. Open it and double click **Install Canon Webcam**. It walks you through a short checklist, and every step is one button:
+That makes `dist/CanonWebcam-1.0.dmg` with two apps in it. Or grab the disk image from the [Releases page](https://github.com/thecristopher/canon-open-webcam/releases).
+
+**Install Canon Webcam** walks you through a short checklist, one button per step:
 
 1. **Camera driver.** Installs OBS if it's missing (with Homebrew, or it opens the download page), then opens OBS for a moment and takes you to the right spot in System Settings to allow its camera. The window notices when you approve and closes OBS again. OBS never has to run after that.
-2. **Canon Webcam.** Installs the background helper and starts it at login. It also switches off Canon's EOS Webcam Utility services so they stop grabbing the camera.
+2. **Canon Webcam.** Copies the Canon Webcam app into Applications (your personal one if you aren't an admin), starts the camera engine, adds a login item so it all comes back when you log in, and opens the app. It also switches off Canon's EOS Webcam Utility services so they stop grabbing the camera.
 3. **Your camera.** Shows when your Canon is plugged in. You can install before plugging it in.
 
-When everything is green, **Test Camera** shows a live preview right in the window.
+**Uninstall Canon Webcam** lists exactly what it will remove (the app, the login item, the engine, its files and log), can turn Canon's EOS Webcam Utility back on, and leaves OBS alone. It's also in the app's menu bar panel.
 
-To remove it, double click **Uninstall Canon Webcam**. It lists exactly what it will remove, can turn Canon's EOS Webcam Utility back on, and leaves OBS alone.
+Both work without a window too, for scripts: `Install Canon Webcam.app/Contents/MacOS/CanonWebcamInstaller --install` and `Uninstall Canon Webcam.app/Contents/MacOS/CanonWebcamUninstaller --uninstall`.
 
-### From the terminal
+### Installing from the terminal
 
 ```sh
 make install                        # build and start at login
@@ -62,23 +64,37 @@ canon-webcam uninstall --restore-canon
 
 ## Use
 
-Plug the camera in over USB, turn it on, and pick **OBS Virtual Camera** in your meeting app. That's it. macOS has no system wide default camera, so pick it once per app and each app remembers.
+Pick **OBS Virtual Camera** in your meeting app. That's it. macOS has no system wide default camera, so pick it once per app and each app remembers.
+
+### The app
+
+Open **Canon Webcam** and you get the picture front and center, exactly what everyone on the call sees, with every control in a sidebar:
+
+- **Adjust:** brightness, contrast, saturation, warmth, tint and sharpness. Double click a label to put it back, or hit Reset.
+- **Framing:** zoom up to 3x, then drag the picture to reframe it, or pinch to zoom. Mirror flips what everyone sees (apps already mirror your own self view).
+- **Camera:** exposure, white balance, ISO, aperture and shutter, straight from the camera, plus focus (auto, or nudge nearer and farther).
+- **Output:** send every camera frame as it arrives, or a steady 30 or 60 frames per second.
+
+At login it starts quietly as a camera icon in the menu bar, with no window. Click the icon for the camera's status, a quick mirror switch, and the way back into the app. Close the window and it goes back to the menu bar. The webcam itself keeps working even if you quit the app, because the engine runs on its own.
+
+ISO, aperture and shutter belong to the camera's mode dial. In movie mode with auto exposure the camera owns them and the app says so. Turn the dial to **M** for full manual control. Exposure compensation and white balance work in any mode.
+
+### From the terminal
+
+Everything in the app is also a command:
 
 ```sh
-canon-webcam status                   # what's going on, plus every setting and its choices
-canon-webcam set exposure +1          # brighter
-canon-webcam set white-balance daylight
-canon-webcam set iso 400              # only in M mode, see below
-canon-webcam set aperture f/5.6
-canon-webcam set shutter 1/60
-canon-webcam set color-temp 5200K
-canon-webcam set mirror on            # flips what everyone else sees, apps already mirror your self view
-canon-webcam set zoom 1.5             # digital zoom toward the center, 1 to 3
-canon-webcam focus                    # autofocus
-canon-webcam focus near 2             # nudge focus, steps 1 to 3
+canon-webcam status                   # what's going on, plus every setting
+canon-webcam set brightness 0.2       # picture: brightness, contrast, saturation, warmth, tint (-1 to 1)
+canon-webcam set sharpness 0.6        # 0 to 1
+canon-webcam set picture reset
+canon-webcam set zoom 1.5             # framing: zoom (1 to 3), pan-x and pan-y (-1 to 1)
+canon-webcam set framing reset
+canon-webcam set mirror on
+canon-webcam set fps 30               # output: camera, 30 or 60
+canon-webcam set exposure +1          # camera: exposure, white-balance, iso, aperture, shutter, color-temp
+canon-webcam focus                    # autofocus, or: focus near 2, focus far 1
 ```
-
-Settings only change while the camera is live. ISO, aperture and shutter belong to the camera's mode dial: in movie mode with auto exposure the camera owns them and `set` tells you so. Turn the dial to **M** for full manual control. Exposure compensation and white balance work in any mode. Mirror and zoom are remembered between runs, everything else the camera remembers itself.
 
 Run it in a terminal instead of at login with `canon-webcam start`. `--always-on` keeps live view running even with no app watching, which skips the one second warm up at the cost of camera battery and heat.
 
@@ -121,4 +137,10 @@ swift build
 swift test
 ```
 
-The code is split into `CanonPTP` (protocol, no hardware), `CanonUSB` (libusb transport), `WebcamEngine` (virtual camera, rendering, the run loop, control socket, launch agent), `SetupKit` (the installer and uninstaller windows), the `canon-webcam` executable and the two app targets. `scripts/build-apps.sh` turns the app targets into bundles with icons and a disk image. The protocol layer is tested against a scripted fake camera, so most of it runs without one plugged in.
+The code is split into `CanonPTP` (protocol, no hardware), `CanonUSB` (libusb transport), `WebcamEngine` (virtual camera, rendering, the run loop, control socket, launch agent), `SetupKit` (every window: the app, the menu bar panel, the installer and the uninstaller), the `canon-webcam` executable and the three app targets. `scripts/build-apps.sh` turns the app targets into bundles with icons, tucks the app inside the installer, and makes the disk image. The protocol layer is tested against a scripted fake camera, so most of it runs without one plugged in.
+
+## Credits
+
+Made by Cristopher Cervantes.
+
+An independent project, not affiliated with or endorsed by Canon Inc. Canon and EOS are trademarks of Canon Inc., used here only to say which cameras this works with.
