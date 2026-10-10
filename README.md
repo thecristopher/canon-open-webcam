@@ -39,7 +39,7 @@ brew install libusb   # only needed to build, the apps carry it inside
 make dist
 ```
 
-That makes `dist/Canon Webcam.dmg` with two apps in it.
+That makes `dist/CanonWebcam-1.0.dmg` with two apps in it. Or grab the disk image from the [Releases page](https://github.com/thecristopher/canon-open-webcam/releases).
 
 **Install Canon Webcam** walks you through a short checklist, one button per step:
 

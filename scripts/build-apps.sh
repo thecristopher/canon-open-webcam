@@ -4,6 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Bump this for each release, it names the disk image and goes into every app's Info.plist
+VERSION="1.0"
 DIST="dist"
 STAGE="$DIST/Canon Webcam"
 WORK="$DIST/.work"
@@ -45,7 +47,7 @@ make_app() {
     <key>CFBundleDisplayName</key><string>$name</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
@@ -85,6 +87,7 @@ done
 echo "Making the disk image"
 mv "$WORK/Canon Webcam.app" "$DIST/Canon Webcam.app"
 rm -rf "$WORK"
-hdiutil create -quiet -volname "Canon Webcam" -srcfolder "$STAGE" -ov -format UDZO "$DIST/Canon Webcam.dmg"
+# No spaces in the file name, GitHub would turn them into dots
+hdiutil create -quiet -volname "Canon Webcam $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DIST/CanonWebcam-$VERSION.dmg"
 
-echo "Done: $DIST/Canon Webcam.dmg (and $DIST/Canon Webcam.app for a quick look)"
+echo "Done: $DIST/CanonWebcam-$VERSION.dmg (and $DIST/Canon Webcam.app for a quick look)"
