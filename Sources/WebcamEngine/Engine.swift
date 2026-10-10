@@ -71,6 +71,7 @@ public final class Engine {
     private let lock = NSLock()
     private var inbox: [(EngineCommand, (ControlResponse) -> Void)] = []
     private var snapshot = EngineStatus(state: Phase.idle.name)
+    private var recheckRequested = false
 
     // No frames for this long means live view quietly died
     private let stallLimit: TimeInterval = 5
@@ -116,6 +117,11 @@ public final class Engine {
     public func handle(_ request: ControlRequest) -> ControlResponse {
         if request.command == "status" {
             return .success(status: lock.withLock { snapshot })
+        }
+        if request.command == "recheck" {
+            // Someone just closed their preview and knows it, so check now instead of waiting for them to walk away
+            lock.withLock { recheckRequested = true }
+            return .success("Checking whether any app is still watching.")
         }
         let command: EngineCommand
         switch EngineCommand.from(request) {
@@ -196,10 +202,14 @@ public final class Engine {
             appsWatching = VirtualCamera.appsAreWatchingWhileIdle()
             return
         }
-        guard situationCheck.isDue(at: now), probes.shouldProbe(UserPresence.currentSituation(), at: now) else { return }
+        let recheck = lock.withLock { () -> Bool in
+            defer { recheckRequested = false }
+            return recheckRequested
+        }
+        guard recheck || (situationCheck.isDue(at: now) && probes.shouldProbe(UserPresence.currentSituation(), at: now)) else { return }
         appsWatching = virtualCamera.probeAppsWatching()
         if appsWatching { probes.probeFoundSomeoneWatching(at: now) }
-        if stats.enabled { config.log(appsWatching ? "probe: still watched" : "probe: nobody is watching") }
+        config.log(recheck ? "Asked to check for apps. Still watched: \(appsWatching ? "yes" : "no")." : "Checked for apps while nobody could see a blink. Still watched: \(appsWatching ? "yes" : "no").")
     }
 
     private func ensureVirtualCamera() -> Bool {

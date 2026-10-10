@@ -24,8 +24,8 @@ public enum LaunchAgent {
             "ProgramArguments": [binary, "start"] + (alwaysOn ? ["--always-on"] : []),
             "RunAtLoad": true,
             "KeepAlive": true,
-            // Keeps a crash loop from hammering the camera
-            "ThrottleInterval": 5,
+            // Short enough that a crash only shows OBS's logo for a moment, long enough not to hammer the camera
+            "ThrottleInterval": 2,
             "ProcessType": "Interactive",
             "StandardOutPath": logPath,
             "StandardErrorPath": logPath,
@@ -59,10 +59,35 @@ public enum LaunchAgent {
         }
     }
 
-    public static func uninstall() throws {
+    /// Removes every trace: the login agent, the copied binary and settings, the log and the terminal command.
+    public static func uninstall(restoreCanonServices: Bool = false) throws {
         unloadAndWait()
-        try? FileManager.default.removeItem(at: plistFile)
         unlinkCommand(at: Paths.commandLink, pointingTo: Paths.installedBinary)
+        for piece in [plistFile, Paths.supportDirectory, logFile] {
+            try? FileManager.default.removeItem(at: piece)
+        }
+        if restoreCanonServices {
+            // They come back at the next login, since their plists are only readable by root
+            for service in canonServices { launchctl("enable", "\(guiDomain)/\(service)") }
+        }
+    }
+
+    /// What uninstall would remove right now, in words a person would recognize.
+    public static func installedPieces() -> [String] {
+        let fileManager = FileManager.default
+        var pieces: [String] = []
+        if fileManager.fileExists(atPath: plistFile.path) { pieces.append("The helper that starts it at login") }
+        if fileManager.fileExists(atPath: Paths.supportDirectory.path) { pieces.append("Its app files and saved settings") }
+        if (try? fileManager.destinationOfSymbolicLink(atPath: Paths.commandLink.path)) == Paths.installedBinary.path {
+            pieces.append("The canon-webcam terminal command")
+        }
+        if fileManager.fileExists(atPath: logFile.path) { pieces.append("Its log file") }
+        return pieces
+    }
+
+    /// True when Canon's EOS Webcam Utility is on this Mac, so offering to bring it back makes sense.
+    public static var canonUtilityIsPresent: Bool {
+        canonServices.contains { FileManager.default.fileExists(atPath: "/Library/LaunchAgents/\($0).plist") }
     }
 
     /// Puts `canon-webcam` on the PATH without touching anything that isn't ours.

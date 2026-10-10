@@ -64,3 +64,20 @@ private let fullHD = CGSize(width: 1920, height: 1080)
     let upscaled = FrameRenderer.upscaled(liveView, to: fullHD, options: FrameOptions(mirror: true, zoom: 2.5))
     #expect(upscaled.extent.contains(CGRect(origin: .zero, size: fullHD)))
 }
+
+@Test func aCutOffFrameIsDroppedInsteadOfRendered() throws {
+    let red = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 36))
+    let jpeg = try #require(CIContext().jpegRepresentation(of: red, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!))
+    #expect(FrameRenderer().render(jpeg: jpeg.prefix(jpeg.count / 2), options: FrameOptions()) == nil)
+}
+
+@Test func aWholeFrameStillRenders() throws {
+    let red = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 36))
+    let jpeg = try #require(CIContext().jpegRepresentation(of: red, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!))
+    #expect(FrameRenderer().render(jpeg: jpeg, options: FrameOptions()) != nil)
+}
+
+@Test func framesMissingTheirEndMarkerLookIncomplete() {
+    #expect(FrameRenderer.looksComplete(Data([0xFF, 0xD8, 0x00, 0x11, 0x22])) == false)
+    #expect(FrameRenderer.looksComplete(Data([0xFF, 0xD8, 0x00, 0xFF, 0xD9])))
+}

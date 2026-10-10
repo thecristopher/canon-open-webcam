@@ -3,6 +3,7 @@ import CoreImage
 import CoreText
 import CoreVideo
 import Foundation
+import ImageIO
 
 public struct FrameOptions: Codable, Equatable, Sendable {
     /// Apps already mirror your self view, so mirroring here flips what everyone else sees.
@@ -38,8 +39,23 @@ public final class FrameRenderer {
     }
 
     public func render(jpeg: Data, options: FrameOptions) -> CVPixelBuffer? {
-        guard let image = CIImage(data: jpeg) else { return nil }
+        guard let image = Self.decode(jpeg) else { return nil }
         return render(image, options: options)
+    }
+
+    /// Decodes right now instead of lazily, so a frame the camera mangled gets dropped here
+    /// rather than crashing deep inside Core Image halfway through a render.
+    static func decode(_ jpeg: Data) -> CIImage? {
+        guard looksComplete(jpeg),
+              let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        else { return nil }
+        return CIImage(cgImage: image)
+    }
+
+    /// Every live view frame starts with FFD8 and ends with FFD9, a cut off one doesn't.
+    static func looksComplete(_ jpeg: Data) -> Bool {
+        jpeg.count > 4 && jpeg.prefix(2) == Data([0xFF, 0xD8]) && jpeg.suffix(2) == Data([0xFF, 0xD9])
     }
 
     public func render(_ image: CIImage, options: FrameOptions) -> CVPixelBuffer? {

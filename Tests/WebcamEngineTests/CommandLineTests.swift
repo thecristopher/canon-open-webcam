@@ -28,6 +28,10 @@ import Testing
     #expect(CLICommand.parse(["install", "--always-on"]) == .success(.install(alwaysOn: true)))
 }
 
+@Test func uninstallCanBringCanonBack() {
+    #expect(CLICommand.parse(["uninstall", "--restore-canon"]) == .success(.uninstall(restoreCanon: true)))
+}
+
 @Test func benchTakesSeconds() {
     #expect(CLICommand.parse(["bench", "3"]) == .success(.bench(seconds: 3)))
 }

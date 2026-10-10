@@ -8,7 +8,7 @@ public enum CLICommand: Equatable, Sendable {
     case focus(action: String, steps: Int)
     case doctor
     case install(alwaysOn: Bool)
-    case uninstall
+    case uninstall(restoreCanon: Bool)
     case bench(seconds: Double)
     case help
 
@@ -22,7 +22,8 @@ public enum CLICommand: Equatable, Sendable {
       canon-webcam focus [auto|near|far] [1-3]
       canon-webcam doctor                  check everything is set up
       canon-webcam install [--always-on]   start at login and stay running
-      canon-webcam uninstall               stop starting at login
+      canon-webcam uninstall [--restore-canon]
+                                           remove everything (optionally turn Canon's utility back on)
       canon-webcam bench [seconds]         measure the camera's live view frame rate
     """
 
@@ -49,7 +50,7 @@ public enum CLICommand: Equatable, Sendable {
         case "install":
             return .success(.install(alwaysOn: alwaysOn))
         case "uninstall":
-            return .success(.uninstall)
+            return .success(.uninstall(restoreCanon: flags.contains("--restore-canon")))
         case "bench":
             let seconds = words.count > 1 ? Double(words[1]) ?? 8 : 8
             return .success(.bench(seconds: seconds))

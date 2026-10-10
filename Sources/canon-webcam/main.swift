@@ -16,7 +16,7 @@ case .success(let command):
     case .focus(let action, let steps): exitCode = sendToEngine(.focus(action, steps: steps))
     case .doctor: exitCode = runDoctor()
     case .install(let alwaysOn): exitCode = installAgent(alwaysOn: alwaysOn)
-    case .uninstall: exitCode = uninstallAgent()
+    case .uninstall(let restoreCanon): exitCode = uninstallAgent(restoreCanon: restoreCanon)
     case .bench(let seconds): exitCode = runBenchmark(seconds: seconds)
     case .help:
         print(CLICommand.usage)

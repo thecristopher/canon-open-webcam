@@ -14,6 +14,7 @@ public struct ControlRequest: Codable, Equatable, Sendable {
     }
 
     public static let status = ControlRequest(command: "status")
+    public static let recheck = ControlRequest(command: "recheck")
 
     public static func set(_ name: String, to value: String) -> ControlRequest {
         ControlRequest(command: "set", name: name, value: value)

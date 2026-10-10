@@ -1,4 +1,3 @@
-import CanonUSB
 import Foundation
 
 public struct Check: Equatable, Sendable {
@@ -20,8 +19,6 @@ public struct Check: Equatable, Sendable {
 
 /// Everything that has to line up for the webcam to work, checked in the order you'd fix it.
 public enum Doctor {
-    static let obsApp = "/Applications/OBS.app"
-
     public static func runChecks() -> [Check] {
         [
             obsInstalled(),
@@ -39,26 +36,25 @@ public enum Doctor {
     }
 
     static func obsInstalled() -> Check {
-        FileManager.default.fileExists(atPath: obsApp)
+        SystemChecks.obsIsInstalled
             ? Check(.ok, "OBS is installed (we only borrow its camera driver, OBS itself never has to run)")
             : Check(.missing, "OBS isn't installed. Get it with: brew install --cask obs")
     }
 
     static func virtualCameraInstalled() -> Check {
-        CMIO.revealCameraExtensions()
-        return CMIO.device(named: VirtualCamera.deviceName) != nil
+        SystemChecks.virtualCameraIsReady
             ? Check(.ok, "\(VirtualCamera.deviceName) is installed and approved")
             : Check(.missing, "\(VirtualCamera.deviceName) isn't set up yet. Open OBS, click Start Virtual Camera once, approve it in System Settings > General > Login Items & Extensions, then quit OBS.")
     }
 
     static func obsNotRunning() -> Check {
-        run("/usr/bin/pgrep", ["-x", "OBS"]).status == 0
+        SystemChecks.obsIsRunning
             ? Check(.warning, "OBS is open. If its own virtual camera is on, it fights us for the same camera. Quit it, we don't need it.")
             : Check(.ok, "OBS isn't running, good")
     }
 
     static func cameraPluggedIn() -> Check {
-        USB.canonIsPluggedIn()
+        SystemChecks.cameraIsPluggedIn
             ? Check(.ok, "A Canon camera is plugged in")
             : Check(.missing, "No Canon camera on USB. Plug it in and turn it on.")
     }

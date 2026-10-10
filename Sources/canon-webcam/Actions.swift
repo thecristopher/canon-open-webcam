@@ -104,14 +104,16 @@ func installAgent(alwaysOn: Bool) -> Int32 {
     }
 }
 
-func uninstallAgent() -> Int32 {
+func uninstallAgent(restoreCanon: Bool) -> Int32 {
     do {
-        try LaunchAgent.uninstall()
-        print("Uninstalled. canon-webcam won't start at login anymore.")
-        print("Canon's services stay off. To bring them back:")
-        for service in LaunchAgent.canonServices {
-            print("  launchctl enable gui/$(id -u)/\(service)")
+        try LaunchAgent.uninstall(restoreCanonServices: restoreCanon)
+        print("Uninstalled. Everything canon-webcam put on this Mac is gone.")
+        if restoreCanon {
+            print("Canon's EOS Webcam Utility comes back the next time you log in.")
+        } else if LaunchAgent.canonUtilityIsPresent {
+            print("Canon's EOS Webcam Utility stays off. Run with --restore-canon to bring it back.")
         }
+        print("OBS stays installed. Drag it to the Trash if you don't need it anymore.")
         return 0
     } catch {
         printError("\(error)")

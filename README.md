@@ -16,7 +16,7 @@ No gphoto2, no ffmpeg, no Canon software, and OBS never has to run. We only borr
 - **Camera controls from the terminal.** Exposure, white balance, ISO, aperture, shutter, focus, plus mirror and digital zoom.
 - **Stays awake.** The camera won't power itself off mid meeting while it's live.
 - **Survives the boring stuff.** Unplugging, crashes, sleep, another app grabbing the camera, a stale session left behind by a crash. It recovers from all of them without a restart.
-- **Light.** One 600KB binary. About 20% of one CPU core while live, nothing while idle.
+- **Light.** One small binary with libusb built in. About 20% of one CPU core while live, nothing while idle.
 
 ### Compared to what Canon ships
 
@@ -35,18 +35,30 @@ Canon's 720p and 1080p are the same live view scaled up, there isn't more detail
 ## Install
 
 ```sh
-brew install libusb
-brew install --cask obs
+brew install libusb   # only needed to build, the apps carry it inside
+make dist
 ```
 
-Open OBS once, click **Start Virtual Camera**, and approve the extension in **System Settings > General > Login Items & Extensions**. Then quit OBS for good. That one time approval is the only reason OBS is installed.
+That makes `dist/Canon Webcam.dmg`. Open it and double click **Install Canon Webcam**. It walks you through a short checklist, and every step is one button:
+
+1. **Camera driver.** Installs OBS if it's missing (with Homebrew, or it opens the download page), then opens OBS for a moment and takes you to the right spot in System Settings to allow its camera. The window notices when you approve and closes OBS again. OBS never has to run after that.
+2. **Canon Webcam.** Installs the background helper and starts it at login. It also switches off Canon's EOS Webcam Utility services so they stop grabbing the camera.
+3. **Your camera.** Shows when your Canon is plugged in. You can install before plugging it in.
+
+When everything is green, **Test Camera** shows a live preview right in the window.
+
+To remove it, double click **Uninstall Canon Webcam**. It lists exactly what it will remove, can turn Canon's EOS Webcam Utility back on, and leaves OBS alone.
+
+### From the terminal
 
 ```sh
-make install          # builds, then starts it at login
-canon-webcam doctor   # checks everything is in place
+make install                        # build and start at login
+canon-webcam doctor                 # check everything is in place
+canon-webcam uninstall              # remove everything
+canon-webcam uninstall --restore-canon
 ```
 
-`install` copies the binary to `~/Library/Application Support/canon-open-webcam/`, links `canon-webcam` into `~/.local/bin`, adds a LaunchAgent (`~/Library/LaunchAgents/dev.canon-open-webcam.plist`, no sudo) that keeps it running, and switches off Canon's EOS Webcam Utility services so they stop grabbing the camera at login. Rebuilding or moving this folder never breaks it. `make uninstall` undoes it.
+`install` copies the binary to `~/Library/Application Support/canon-open-webcam/`, links `canon-webcam` into `~/.local/bin`, and adds a LaunchAgent (`~/Library/LaunchAgents/dev.canon-open-webcam.plist`, no sudo) that keeps it running. Rebuilding or moving this folder never breaks it.
 
 ## Use
 
@@ -109,4 +121,4 @@ swift build
 swift test
 ```
 
-The code is split into `CanonPTP` (protocol, no hardware), `CanonUSB` (libusb transport), `WebcamEngine` (virtual camera, rendering, the run loop, control socket, launch agent) and the `canon-webcam` executable. The protocol layer is tested against a scripted fake camera, so most of it runs without one plugged in.
+The code is split into `CanonPTP` (protocol, no hardware), `CanonUSB` (libusb transport), `WebcamEngine` (virtual camera, rendering, the run loop, control socket, launch agent), `SetupKit` (the installer and uninstaller windows), the `canon-webcam` executable and the two app targets. `scripts/build-apps.sh` turns the app targets into bundles with icons and a disk image. The protocol layer is tested against a scripted fake camera, so most of it runs without one plugged in.
