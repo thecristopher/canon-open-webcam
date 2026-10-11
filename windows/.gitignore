@@ -1,2 +1,5 @@
 /target/
+/dist/
 *.jpg
+*.bmp
+!crates/*/fixtures/*.jpg

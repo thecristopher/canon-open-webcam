@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/canon-ptp", "crates/canon-wpd", "crates/canon-webcam"]
+members = ["crates/canon-ptp", "crates/canon-shm", "crates/canon-vcam", "crates/canon-wpd", "crates/canon-webcam"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,10 +10,14 @@ repository = "https://github.com/thecristopher/canon-open-webcam"
 
 [workspace.dependencies]
 canon-ptp = { path = "crates/canon-ptp" }
+canon-shm = { path = "crates/canon-shm" }
 canon-wpd = { path = "crates/canon-wpd" }
 anyhow = "1.0.104"
 thiserror = "2.0.21"
 windows = "0.62.2"
+windows-core = "0.62.2"
+zune-jpeg = "0.5"
+fast_image_resize = "6.1.0"
 
 [profile.release]
 lto = true
