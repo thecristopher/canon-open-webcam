@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = ["crates/canon-ptp", "crates/canon-shm", "crates/canon-vcam", "crates/canon-wpd", "crates/canon-webcam"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/thecristopher/canon-open-webcam"
+
+[workspace.dependencies]
+canon-ptp = { path = "crates/canon-ptp" }
+canon-shm = { path = "crates/canon-shm" }
+canon-wpd = { path = "crates/canon-wpd" }
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+windows = "0.62.2"
+windows-core = "0.62.2"
+zune-jpeg = "0.5"
+fast_image_resize = "6.1.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.152"
+eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "glow"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

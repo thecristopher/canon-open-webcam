@@ -1,0 +1,9 @@
+[package]
+name = "canon-ptp"
+description = "Just enough Canon EOS PTP to stream live view, with no OS dependencies"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true

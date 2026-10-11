@@ -1,6 +1,16 @@
 # canon-open-webcam
 
-Use a Canon EOS camera (built and tested on a Rebel T7 / 2000D / 1500D) as a webcam on macOS, for free, with nothing in the way. One small native binary talks to the camera over USB and feeds the picture straight into a virtual camera that Zoom, Meet, FaceTime, Teams, Discord and friends can pick.
+Use a Canon EOS camera (built and tested on a Rebel T7 / 2000D / 1500D) as a webcam on macOS and Windows, for free, with nothing in the way. One small native app talks to the camera over USB and feeds the picture straight into a virtual camera that Zoom, Meet, FaceTime, Teams, Discord and friends can pick.
+
+| | macOS | Windows 11 |
+| --- | --- | --- |
+| Written in | Swift | Rust |
+| Talks to the camera through | libusb, built in | Windows' own MTP driver (WPD), no driver swap |
+| Virtual camera | OBS's camera driver (OBS never has to run) | Our own Media Foundation virtual camera, no driver to sign |
+| Shows up in apps as | OBS Virtual Camera | Canon Webcam |
+| Lives in | `Sources/`, `Tests/` | [`windows/`](windows/README.md) |
+
+Both have the same app, the same controls, the same commands and the same settings file format. The rest of this page is about the Mac; the Windows side has its own [README](windows/README.md), summed up [below](#windows).
 
 ```
 Canon over USB ──PTP live view (our own client)──▶ decode, scale to 1080p ──▶ OBS Virtual Camera driver ──▶ your apps
@@ -130,7 +140,27 @@ What actually makes the picture better, now that the software is maxed out:
 
 Logs live in `~/Library/Logs/canon-open-webcam.log`. Set `CANON_WEBCAM_DEBUG=1` to also log a per frame timing breakdown, and `canon-webcam bench` measures the raw live view rate of whatever camera is plugged in.
 
+## Windows
+
+The Windows app lives in `windows/`, in Rust, and needs Windows 11. Full details in [windows/README.md](windows/README.md).
+
+```
+Canon ──USB, WPD (MTP vendor commands)──▶ CanonWebcam.exe: live view ▶ color, crop, 1080p, sharpen, mirror ▶ NV12
+                                                     │  shared memory
+Zoom, Teams, Meet ◀── Frame Server ◀── canon_vcam.dll (Media Foundation virtual camera)
+```
+
+- **Install:** grab `CanonWebcam-<version>-windows-x64.zip` from the [Releases page](https://github.com/thecristopher/canon-open-webcam/releases), unzip it and run `CanonWebcam.exe`. **Set Up Canon Webcam** checks for Windows 11, copies the app into Program Files, registers the virtual camera, starts it at sign in and switches off Canon's EOS Webcam Utility services. Windows asks for permission once.
+- **No driver swap, no signed driver.** The camera is reached through Windows' own MTP driver, the same way Canon's EDSDK does it. If Zadig ever moved your Canon to WinUSB, `doctor` spots it and Set Up (or `CanonWebcam fix-driver`) hands it back to Windows.
+- **Wakes up on demand, with no guessing.** The virtual camera stamps a heartbeat in shared memory whenever an app asks for a frame, so the engine knows exactly when apps come and go, and rests the camera 30 seconds after the last one leaves.
+- **The same app.** Picture front and center with Adjust, Framing, Camera and Output in a sidebar, and a tray icon instead of the menu bar.
+- **The same commands:** `CanonWebcam status`, `set`, `focus`, `doctor`, `install`, `uninstall [--restore-canon]`, `start --always-on`, `bench`, plus `check out.bmp` to open the virtual camera like Zoom would and report its frame rate.
+
+Settings live in `%APPDATA%\CanonWebcam\options.json` (same format as the Mac's), logs in `%LOCALAPPDATA%\CanonWebcam\canon-webcam.log` and `C:\ProgramData\CanonWebcam\camera.log`.
+
 ## Development
+
+### macOS
 
 ```sh
 swift build
@@ -138,6 +168,18 @@ swift test
 ```
 
 The code is split into `CanonPTP` (protocol, no hardware), `CanonUSB` (libusb transport), `WebcamEngine` (virtual camera, rendering, the run loop, control socket, launch agent), `SetupKit` (every window: the app, the menu bar panel, the installer and the uninstaller), the `canon-webcam` executable and the three app targets. `scripts/build-apps.sh` turns the app targets into bundles with icons, tucks the app inside the installer, and makes the disk image. The protocol layer is tested against a scripted fake camera, so most of it runs without one plugged in.
+
+### Windows
+
+Needs Rust (`winget install Rustlang.Rustup`) and the Visual Studio C++ build tools with a Windows SDK. From `windows/`:
+
+```powershell
+cargo test
+cargo build --release                                         # target\release\CanonWebcam.exe and canon_vcam.dll
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1  # dist\CanonWebcam-<version>-windows-x64.zip
+```
+
+The workspace mirrors the Mac's split: `canon-ptp` (protocol, no OS code), `canon-wpd` (the WPD transport), `canon-shm` (the shared memory contract between engine and camera), `canon-vcam` (the virtual camera DLL) and `canon-webcam` (the tray, engine, windows, control pipe, setup and every command).
 
 ## Credits
 
