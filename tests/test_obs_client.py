@@ -81,3 +81,32 @@ def test_request_raises_when_obs_says_no():
     socket = FakeSocket([response_to(result=False, comment="No scene named Umbrella")])
     with pytest.raises(ObsError, match="Umbrella"):
         ObsClient(socket).request("SetCurrentProgramScene")
+
+
+def not_ready():
+    def build(request):
+        return {"op": 7, "d": {
+            "requestId": request["d"]["requestId"],
+            "requestStatus": {"result": False, "code": 207, "comment": "OBS is not ready"},
+        }}
+    return build
+
+
+def test_waits_for_obs_to_finish_loading():
+    import time
+    from canon_webcam.actions.obs_client import wait_until_ready
+
+    socket = FakeSocket([not_ready(), not_ready(), response_to(data={"baseWidth": 1280})])
+    naps = []
+
+    wait_until_ready(ObsClient(socket), deadline=time.monotonic() + 60, sleep=naps.append)
+
+    assert len(socket.sent) == 3
+    assert len(naps) == 2
+
+
+def test_gives_up_waiting_for_obs_at_the_deadline():
+    from canon_webcam.actions.obs_client import wait_until_ready
+
+    with pytest.raises(ObsError, match="not ready"):
+        wait_until_ready(ObsClient(FakeSocket([not_ready()])), deadline=0, sleep=lambda _: None)

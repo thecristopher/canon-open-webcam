@@ -60,7 +60,7 @@ def test_pipeline_retries_when_the_camera_drops(monkeypatch):
             stop.set()
         return FinishedProcess(), FinishedProcess(), deque(["Ada unplugged the cable"]), stream.Heartbeat()
 
-    monkeypatch.setattr(stream, "free_camera_from_macos", lambda: None)
+    monkeypatch.setattr(stream, "free_camera", lambda: None)
     monkeypatch.setattr(stream, "start_processes", fake_start)
     monkeypatch.setattr(stream, "RETRY_DELAY_SECONDS", 0)
     logs = []
@@ -167,7 +167,7 @@ def test_pipeline_restarts_when_gphoto2_hangs_without_exiting(monkeypatch):
         gphotos.append(gphoto)
         return gphoto, RunningProcess(), deque(), stream.Heartbeat()
 
-    monkeypatch.setattr(stream, "free_camera_from_macos", lambda: None)
+    monkeypatch.setattr(stream, "free_camera", lambda: None)
     monkeypatch.setattr(stream, "start_processes", fake_start)
     monkeypatch.setattr(stream, "RETRY_DELAY_SECONDS", 0)
     monkeypatch.setattr(stream, "STALL_SECONDS", -1)
@@ -177,3 +177,27 @@ def test_pipeline_restarts_when_gphoto2_hangs_without_exiting(monkeypatch):
 
     assert gphotos[0].terminated
     assert any("no frames for" in line for line in logs)
+
+
+def test_text_mode_repair_restores_bytes_windows_rewrote():
+    original = bytes(range(256)) * 20 + b"\r\n" + b"\n\n"
+    rewritten = original.replace(b"\n", b"\r\n")
+    repair = stream.TextModeRepair()
+
+    # Split mid CRLF to make sure a trailing CR waits for its LF
+    split = rewritten.index(b"\r\n") + 1
+    repaired = repair.feed(rewritten[:split]) + repair.feed(rewritten[split:]) + repair.flush()
+
+    assert repaired == original
+
+
+def test_text_mode_repair_leaves_a_binary_stream_alone():
+    original = (b"\xff\xd8 Jill's frame \n" + b"\r\n") * 20
+    repair = stream.TextModeRepair()
+    assert repair.feed(original) + repair.flush() == original
+
+
+def test_text_mode_repair_passes_short_streams_through_on_flush():
+    repair = stream.TextModeRepair()
+    assert repair.feed(b"Claire\r\n") == b""
+    assert repair.flush() == b"Claire\r\n"

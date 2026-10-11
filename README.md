@@ -1,6 +1,6 @@
 # canon-open-webcam
 
-Use a Canon EOS camera (built on a Rebel T7 / 2000D) as a webcam on macOS without paying for EOS Webcam Utility Pro. Every piece is open source: gphoto2 pulls the live view over USB, ffmpeg wraps the frames for streaming, and OBS Virtual Camera exposes it to Zoom, Meet, FaceTime, Teams, Discord, and friends.
+Use a Canon EOS camera (built on a Rebel T7 / 2000D) as a webcam on macOS or Windows without paying for EOS Webcam Utility Pro. Every piece is open source: gphoto2 pulls the live view over USB, ffmpeg wraps the frames for streaming, and OBS Virtual Camera exposes it to Zoom, Meet, FaceTime, Teams, Discord, and friends.
 
 ```
 Canon over USB ──gphoto2 (MJPEG live view)──▶ ffmpeg (MJPEG passthrough in NUT, TCP localhost) ──▶ OBS media source ──▶ OBS Virtual Camera
@@ -64,6 +64,54 @@ macOS has no system wide default camera. Pick **OBS Virtual Camera** once in eac
 | `--on-demand` | Experimental. Only run while an app is using OBS Virtual Camera, see above |
 | `--idle-minutes 5` | With `--on-demand`, pause after this much idle time when no call is running |
 
+## Windows (experimental)
+
+Same pipeline, same open source tools. Tested end to end with a Rebel T7 on Windows 11. Start at login (`install`) hasn't had a real login test yet.
+
+### Install
+
+```powershell
+winget install Python.Python.3.12
+winget install Gyan.FFmpeg
+winget install OBSProject.OBSStudio
+winget install MSYS2.MSYS2
+C:\msys64\usr\bin\bash.exe -lc "pacman -S --noconfirm mingw-w64-ucrt-x86_64-gphoto2"
+python -m venv .venv; .venv\Scripts\pip install -e .
+```
+
+`canon-webcam` finds gphoto2 in `C:\msys64\ucrt64\bin` on its own, so you don't need to touch PATH. Set `MSYS2_ROOT` if MSYS2 lives somewhere else.
+
+Running gphoto2 by hand? MSYS2's build looks for its camera drivers under the path of the machine that built it and finds none (`Number of supported cameras: 0`). `canon-webcam` sets these for you; in your own shell set them yourself:
+
+```powershell
+$env:CAMLIBS = "C:\msys64\ucrt64\lib\libgphoto2\2.5.34"
+$env:IOLIBS = "C:\msys64\ucrt64\lib\libgphoto2_port\0.12.2"
+```
+
+### Hand the camera to gphoto2 (one time)
+
+Windows gives the camera to its built-in photo driver (MTP, the one that shows it in Explorer), and gphoto2 can't open it through that. You'll see `Could not claim the USB device`. [Zadig](https://zadig.akeo.ie) (open source) swaps it for the generic WinUSB driver:
+
+1. Plug the camera in and turn it on.
+2. In Zadig, pick **Options > List All Devices**, choose the Canon camera, select **WinUSB** and click **Replace Driver**.
+
+While the camera is on WinUSB, Explorer, the Photos app, EOS Utility and Canon's own webcam software can't see it. To undo it, open **Device Manager**, right click the camera, choose **Uninstall device** with **Delete the driver software** ticked, and replug.
+
+### Use
+
+```powershell
+.venv\Scripts\canon-webcam doctor
+.venv\Scripts\canon-webcam
+.venv\Scripts\canon-webcam install     # start at login, restart if anything stops
+.venv\Scripts\canon-webcam uninstall
+```
+
+`install` needs no admin rights. It adds a per user entry under `HKCU\...\CurrentVersion\Run` that starts a small windowless supervisor, which restarts `canon-webcam` whenever it exits. Logs live in `%LOCALAPPDATA%\canon-open-webcam\canon-open-webcam.log`.
+
+`--on-demand` is macOS only for now. Windows doesn't report which app has OBS Virtual Camera open while it's off.
+
+gphoto2 on Windows writes its output in text mode, which turns every `0x0A` byte of the JPEG frames into `0x0D 0x0A`. `canon-webcam` spots that in the first few KB and undoes it exactly, so the frames reach OBS intact.
+
 ## Camera tips
 
 - Turn **Auto power off** to Disable in the camera menu, or it will fall asleep mid meeting.
@@ -92,3 +140,5 @@ The other big chunk was OBS itself. Every hop from OBS's render to the virtual c
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest
 ```
+
+Everything that differs between operating systems lives in `canon_webcam/platforms/` (`macos` and `windows`, both exposing the same names). The rest of the code only talks to `platforms.current`.

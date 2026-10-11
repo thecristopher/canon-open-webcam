@@ -1,12 +1,11 @@
 import json
 import secrets
-import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
-CONFIG_PATH = (
-    Path.home() / "Library/Application Support/obs-studio/plugin_config/obs-websocket/config.json"
-)
+from .. import platforms
+
+CONFIG_PATH = platforms.current.OBS_WEBSOCKET_CONFIG
 DEFAULT_PORT = 4455
 
 
@@ -62,11 +61,8 @@ def ensure_websocket_enabled(obs_running: bool, path: Path = CONFIG_PATH) -> dic
 
 
 def obs_is_running() -> bool:
-    return subprocess.run(["pgrep", "-x", "OBS"], capture_output=True).returncode == 0
+    return bool(platforms.current.obs_pids())
 
 
 def launch_obs() -> None:
-    subprocess.run(
-        ["open", "-g", "-a", "OBS", "--args", "--minimize-to-tray", "--disable-shutdown-check"],
-        check=True,
-    )
+    platforms.current.launch_obs()

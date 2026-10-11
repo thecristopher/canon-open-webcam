@@ -9,10 +9,14 @@ from websockets.exceptions import ConnectionClosed, InvalidHandshake
 from websockets.sync.client import connect
 
 OP_HELLO, OP_IDENTIFY, OP_IDENTIFIED, OP_REQUEST, OP_RESPONSE = 0, 1, 2, 6, 7
+# OBS answers requests with this while it is still loading its scenes and profile
+STATUS_NOT_READY = 207
 
 
 class ObsError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: Optional[int] = None):
+        super().__init__(message)
+        self.code = code
 
 
 def sha256_base64(text: str) -> str:
@@ -68,7 +72,7 @@ class ObsClient:
         status = message["d"]["requestStatus"]
         if not status["result"]:
             detail = status.get("comment") or f"code {status['code']}"
-            raise ObsError(f"{request_type} failed: {detail}")
+            raise ObsError(f"{request_type} failed: {detail}", status["code"])
         return message["d"].get("responseData") or {}
 
     def close(self) -> None:
@@ -87,4 +91,17 @@ def connect_to_obs(url: str, password: Optional[str], timeout: float = 30) -> Ob
             time.sleep(1)
             continue
         client.identify(password)
+        wait_until_ready(client, deadline)
         return client
+
+
+def wait_until_ready(client: ObsClient, deadline: float, sleep=time.sleep) -> None:
+    # The websocket opens before OBS finishes loading, most visibly on a fresh launch
+    while True:
+        try:
+            client.request("GetVideoSettings")
+            return
+        except ObsError as error:
+            if error.code != STATUS_NOT_READY or time.monotonic() > deadline:
+                raise
+        sleep(0.5)

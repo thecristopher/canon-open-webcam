@@ -3,12 +3,11 @@ import shutil
 import signal
 import sys
 import threading
-from pathlib import Path
 
 from . import actions
+from .platforms import current as system
 
 REQUIRED_TOOLS = ("gphoto2", "ffmpeg")
-OBS_APP = "/Applications/OBS.app"
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -46,13 +45,10 @@ def find_camera() -> actions.Camera:
     busy = actions.other_camera_users()
     if busy:
         raise RuntimeError("Another process is already streaming from the camera:\n  " + "\n  ".join(busy))
-    actions.free_camera_from_macos()
+    actions.free_camera()
     camera = actions.pick_camera(actions.list_cameras())
     if camera is None:
-        raise RuntimeError(
-            "No camera found. Plug it in over USB, turn it on, and make sure the EOS Utility "
-            "or Image Capture is closed."
-        )
+        raise RuntimeError(f"No camera found. {system.CAMERA_HINT}")
     return camera
 
 
@@ -83,6 +79,8 @@ def start(args) -> int:
     url = actions.sender_url(args.port)
     receiver = actions.receiver_url(args.port)
 
+    if args.on_demand and not system.SUPPORTS_ON_DEMAND:
+        raise RuntimeError(f"--on-demand isn't available on {system.NAME} yet.")
     if args.on_demand and args.no_obs:
         raise RuntimeError("--on-demand needs OBS, so it can't be combined with --no-obs.")
     if args.on_demand:
@@ -136,21 +134,18 @@ def start_on_demand(args, url: str, receiver: str) -> int:
 
 
 def install() -> int:
-    for label in actions.CANON_UTILITY_LABELS:
-        actions.disable_service(label)
-    print("Disabled Canon's EOS Webcam Utility services so they stop grabbing the camera.")
-    actions.install()
+    for note in system.install():
+        print(note)
     print("Installed. canon-webcam now starts at login and restarts itself if it stops.")
-    print(f"Logs: {actions.LOG_PATH}")
+    print(f"Logs: {system.LOG_PATH}")
     return 0
 
 
 def uninstall() -> int:
-    actions.uninstall()
+    notes = system.uninstall()
     print("Uninstalled. canon-webcam will no longer start at login.")
-    print("Canon's services stay disabled. To bring them back:")
-    for label in actions.CANON_UTILITY_LABELS:
-        print(f"  launchctl enable gui/$(id -u)/{label}")
+    for note in notes:
+        print(note)
     return 0
 
 
@@ -159,13 +154,13 @@ def doctor() -> int:
     for tool in REQUIRED_TOOLS:
         found = shutil.which(tool)
         healthy &= bool(found)
-        print(f"{'ok' if found else 'MISSING':8} {tool} {found or '(brew install ' + tool + ')'}")
+        print(f"{'ok' if found else 'MISSING':8} {tool} {found or '(' + system.INSTALL_HINTS[tool] + ')'}")
 
-    obs_installed = Path(OBS_APP).exists()
-    healthy &= obs_installed
-    print(f"{'ok':8} OBS {OBS_APP}" if obs_installed else f"{'MISSING':8} OBS (brew install --cask obs)")
+    obs = system.obs_location()
+    healthy &= obs is not None
+    print(f"{'ok':8} OBS {obs}" if obs else f"{'MISSING':8} OBS ({system.INSTALL_HINTS['obs']})")
 
-    agent = "installed" if actions.is_installed() else "not installed (run: canon-webcam install)"
+    agent = "installed" if system.is_installed() else "not installed (run: canon-webcam install)"
     print(f"{'info':8} start at login {agent}")
 
     config = actions.read_websocket_config()
@@ -173,13 +168,13 @@ def doctor() -> int:
     print(f"{'info':8} OBS websocket {state}")
 
     if not missing_tools():
-        actions.free_camera_from_macos()
+        actions.free_camera()
         cameras = actions.list_cameras()
         healthy &= bool(cameras)
         for camera in cameras:
             print(f"{'ok':8} camera {camera.model} on {camera.port}")
         if not cameras:
-            print(f"{'MISSING':8} camera (plug it in over USB and turn it on)")
+            print(f"{'MISSING':8} camera ({system.CAMERA_HINT})")
     return 0 if healthy else 1
 
 
@@ -191,6 +186,7 @@ def main(argv=None) -> int:
     # launchd and kill send SIGTERM, which should clean up just like Ctrl+C
     signal.signal(signal.SIGTERM, stop_on_sigterm)
     sys.stdout.reconfigure(line_buffering=True)
+    system.add_tool_paths()
     args = parse_args(argv)
     if args.command == "doctor":
         return doctor()
@@ -199,7 +195,9 @@ def main(argv=None) -> int:
 
     missing = missing_tools()
     if missing:
-        print(f"Missing tools: {', '.join(missing)}. Install with: brew install {' '.join(missing)}")
+        print(f"Missing tools: {', '.join(missing)}. Install with:")
+        for tool in missing:
+            print(f"  {system.INSTALL_HINTS[tool]}")
         return 1
     try:
         if args.command == "install":

@@ -1,7 +1,7 @@
 from .camera import (
     Camera,
     find_camera_port,
-    free_camera_from_macos,
+    free_camera,
     list_cameras,
     other_camera_users,
     parse_auto_detect,
@@ -22,13 +22,4 @@ from .obs_config import (
 )
 from .obs_setup import disable_global_mics, setup_obs, stop_virtual_cam
 from .stream import receiver_url, run_pipeline, sender_url
-from .launch_agent import (
-    CANON_UTILITY_LABELS,
-    LOG_PATH,
-    PLIST_PATH,
-    disable_service,
-    install,
-    is_installed,
-    uninstall,
-)
 from .on_demand import run_on_demand

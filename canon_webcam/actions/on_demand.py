@@ -2,7 +2,8 @@ import threading
 import time
 from typing import Callable
 
-from . import presence
+# On demand only exists on macOS, where CoreMediaIO reports who opened the camera
+from ..platforms.macos import presence
 from .obs_setup import start_virtual_cam, stop_virtual_cam
 from .stream import run_pipeline
 

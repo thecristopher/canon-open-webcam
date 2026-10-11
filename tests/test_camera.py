@@ -35,10 +35,9 @@ def test_picks_nothing_from_an_empty_list():
 
 
 def test_other_camera_users_only_counts_live_view_streams(monkeypatch):
+    from canon_webcam import platforms
     from canon_webcam.actions import camera
 
-    class Result:
-        stdout = "4242 gphoto2 --capture-movie --stdout\n4343 gphoto2 --auto-detect\n"
-
-    monkeypatch.setattr(camera.subprocess, "run", lambda *a, **k: Result())
+    lines = ["4242 gphoto2 --capture-movie --stdout", "4343 gphoto2 --auto-detect"]
+    monkeypatch.setattr(platforms.current, "process_command_lines", lambda name: lines)
     assert camera.other_camera_users() == ["4242 gphoto2 --capture-movie --stdout"]

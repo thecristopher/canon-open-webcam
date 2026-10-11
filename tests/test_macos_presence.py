@@ -1,5 +1,5 @@
-from canon_webcam.actions import presence
-from canon_webcam.actions.presence import Assertion
+from canon_webcam.platforms.macos import presence
+from canon_webcam.platforms.macos.presence import Assertion
 
 PMSET_SAMPLE = """Listed by owning process:
    pid 444(coreaudiod): [0x000090d700019bc1] 01:43:02 PreventUserIdleSystemSleep named: "com.apple.audio.BuiltInMicrophoneDevice.context.preventuseridlesleep"

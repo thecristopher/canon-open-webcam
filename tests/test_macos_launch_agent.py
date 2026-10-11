@@ -1,6 +1,6 @@
 import plistlib
 
-from canon_webcam.actions import launch_agent
+from canon_webcam.platforms.macos import launch_agent
 
 
 def test_agent_starts_at_login_and_stays_alive():
@@ -40,6 +40,7 @@ def test_uninstall_removes_the_plist(tmp_path, monkeypatch):
 def test_unload_waits_until_the_old_agent_is_gone(monkeypatch):
     still_loaded = iter([True, True, False])
     monkeypatch.setattr(launch_agent, "launchctl", lambda *args: None)
+    monkeypatch.setattr(launch_agent, "gui_domain", lambda: "gui/501")
     monkeypatch.setattr(launch_agent, "is_loaded", lambda: next(still_loaded))
     monkeypatch.setattr(launch_agent.time, "sleep", lambda _: None)
 

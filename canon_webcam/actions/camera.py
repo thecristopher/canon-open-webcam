@@ -2,8 +2,7 @@ import re
 import subprocess
 from typing import NamedTuple, Optional
 
-# macOS daemons that grab any PTP camera the moment it is plugged in
-MACOS_CAMERA_HOGS = ("ptpcamerad", "PTPCamera", "ImageCaptureExtension")
+from .. import platforms
 
 
 class Camera(NamedTuple):
@@ -11,19 +10,13 @@ class Camera(NamedTuple):
     port: str
 
 
-def free_camera_from_macos() -> None:
-    for name in MACOS_CAMERA_HOGS:
-        subprocess.run(["killall", "-9", name], capture_output=True)
-
-
-def parse_pgrep(output: str) -> list[str]:
-    return [line.strip() for line in output.splitlines() if line.strip()]
+def free_camera() -> None:
+    platforms.current.free_camera()
 
 
 def other_camera_users() -> list[str]:
     # Only one process can hold live view, and a stray one makes us fail silently
-    result = subprocess.run(["pgrep", "-lf", "gphoto2"], capture_output=True, text=True)
-    return [line for line in parse_pgrep(result.stdout) if "--capture-movie" in line]
+    return [line for line in platforms.current.process_command_lines("gphoto2") if "--capture-movie" in line]
 
 
 def parse_auto_detect(output: str) -> list[Camera]:
@@ -47,7 +40,7 @@ def list_cameras() -> list[Camera]:
 
 
 def find_camera_port() -> Optional[str]:
-    free_camera_from_macos()
+    free_camera()
     camera = pick_camera(list_cameras())
     return camera.port if camera else None
 

@@ -5,7 +5,7 @@ import time
 from collections import deque
 from typing import Callable, Optional
 
-from .camera import free_camera_from_macos
+from .camera import free_camera
 
 RETRY_DELAY_SECONDS = 2
 CAMERA_POLL_SECONDS = 3
@@ -59,13 +59,49 @@ class Heartbeat:
         return self.clock() - self.last
 
 
+class TextModeRepair:
+    """Undoes the LF -> CRLF rewrite a Windows text mode stdout does to gphoto2's JPEGs.
+
+    gphoto2 never switches stdout to binary mode, so on Windows every 0x0A byte comes out
+    as 0x0D 0x0A. Dropping the CR in front of each LF restores the bytes exactly. In real
+    binary data a bare LF shows up within the first few, so a clean stream passes through.
+    """
+
+    SAMPLE_NEWLINES = 16
+
+    def __init__(self):
+        self.pending = b""
+        self.translated: Optional[bool] = None
+
+    def feed(self, chunk: bytes) -> bytes:
+        data = self.pending + chunk
+        if self.translated is None:
+            newlines = data.count(b"\n")
+            if newlines < self.SAMPLE_NEWLINES:
+                self.pending = data
+                return b""
+            self.translated = newlines == data.count(b"\r\n")
+        if not self.translated:
+            self.pending = b""
+            return data
+        # A CR at the very end may belong to an LF in the next chunk
+        data, self.pending = (data[:-1], b"\r") if data.endswith(b"\r") else (data, b"")
+        return data.replace(b"\r\n", b"\n")
+
+    def flush(self) -> bytes:
+        data, self.pending = self.pending, b""
+        return data
+
+
 def relay(source, sink, heartbeat: Heartbeat) -> None:
     # Copying through Python is how we notice gphoto2 hanging without exiting
+    repair = TextModeRepair()
     try:
         for chunk in iter(lambda: os.read(source.fileno(), 65536), b""):
             heartbeat.beat()
-            sink.write(chunk)
+            sink.write(repair.feed(chunk))
             sink.flush()
+        sink.write(repair.flush())
     except (OSError, ValueError):
         # ffmpeg died or we closed the pipes, and the main loop handles both
         pass
@@ -122,7 +158,7 @@ def run_pipeline(
             continue
         waiting = False
 
-        free_camera_from_macos()
+        free_camera()
         gphoto, ffmpeg, errors, heartbeat = start_processes(camera_port, url)
         log("Live view is streaming. Press Ctrl+C to stop.")
         stalled = False

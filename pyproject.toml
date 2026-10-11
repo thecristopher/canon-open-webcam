@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "canon-open-webcam"
 version = "0.1.0"
-description = "Use a Canon EOS camera as a webcam on macOS, no paywall"
+description = "Use a Canon EOS camera as a webcam on macOS or Windows, no paywall"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Cristopher Cervantes" }]
