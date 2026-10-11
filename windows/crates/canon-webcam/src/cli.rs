@@ -103,9 +103,17 @@ pub fn checks() -> Vec<Check> {
             "Windows doesn't list the virtual camera. Reinstall with `CanonWebcam install`.",
         ),
     });
-    checks.push(match canon_plugged_in() {
-        Some(name) => Check::new(Verdict::Ok, format!("{name} is plugged in")),
-        None => Check::new(Verdict::Missing, "No Canon camera on USB. Plug it in and turn it on."),
+    checks.push(match (canon_plugged_in(), setup::canon_on_generic_usb_driver()) {
+        (Some(name), _) => Check::new(Verdict::Ok, format!("{name} is plugged in")),
+        (None, Some(camera)) => Check::new(
+            Verdict::Missing,
+            format!(
+                "Your Canon is on the {} driver (Zadig installed it as {}), which hides it from Windows' camera system. \
+                 Run `CanonWebcam fix-driver` to switch it back.",
+                camera.driver, camera.package
+            ),
+        ),
+        (None, None) => Check::new(Verdict::Missing, "No Canon camera on USB. Plug it in and turn it on."),
     });
     checks.push(if !setup::canon_utility_present() {
         Check::new(Verdict::Ok, "Canon's EOS Webcam Utility isn't installed, so nothing else grabs the camera")
@@ -167,31 +175,44 @@ pub fn bench(seconds: f64) -> Result<()> {
     let pacer = FramePacer::default();
     let (mut frames, mut not_ready, mut bytes) = (0u32, 0u32, 0usize);
     let mut transfer = Duration::ZERO;
-    let started = Instant::now();
+    // Live view takes a second or two to produce its first frame, so the clock starts there
+    let warmup = Instant::now();
+    let mut first_frame: Option<Instant> = None;
     let mut last_frame = Instant::now();
     let result = (|| -> Result<()> {
-        while started.elapsed().as_secs_f64() < seconds {
+        loop {
+            match first_frame {
+                Some(first) if first.elapsed().as_secs_f64() >= seconds => return Ok(()),
+                None if warmup.elapsed() > Duration::from_secs(10) => bail!("the camera never sent a frame"),
+                _ => {}
+            }
             std::thread::sleep(pacer.wait_before_asking(last_frame.elapsed()));
             let asked = Instant::now();
             match camera.next_frame()? {
                 Some(jpeg) => {
+                    last_frame = Instant::now();
+                    if first_frame.is_none() {
+                        println!("First frame after {} ms", warmup.elapsed().as_millis());
+                        first_frame = Some(last_frame);
+                        continue;
+                    }
                     transfer += asked.elapsed();
                     frames += 1;
                     bytes += jpeg.len();
-                    last_frame = Instant::now();
                 }
                 None => {
-                    not_ready += 1;
+                    if first_frame.is_some() {
+                        not_ready += 1;
+                    }
                     std::thread::sleep(pacer.retry_delay);
                 }
             }
         }
-        Ok(())
     })();
     camera.disconnect();
     result?;
-    let elapsed = started.elapsed().as_secs_f64();
-    println!("{frames} frames in {elapsed:.1}s: {:.1} fps", frames as f64 / elapsed);
+    let elapsed = first_frame.map_or(0.0, |first| (last_frame - first).as_secs_f64());
+    println!("{frames} frames in {elapsed:.1}s: {:.1} fps", frames as f64 / elapsed.max(0.001));
     if frames > 0 {
         println!(
             "Average frame {} KB, {:.1} ms per transfer, {not_ready} not ready answers",

@@ -173,6 +173,8 @@ struct Runner {
     status_refresh: Every,
     card_refresh: Every,
     card: Option<(Phase, Vec<u8>)>,
+    driver_check: Every,
+    hijacked: bool,
 }
 
 impl Runner {
@@ -199,6 +201,8 @@ impl Runner {
             status_refresh: Every::new(Duration::from_millis(500)),
             card_refresh: Every::new(Duration::from_millis(500)),
             card: None,
+            driver_check: Every::new(Duration::from_secs(30)),
+            hijacked: false,
         }
     }
 
@@ -299,7 +303,9 @@ impl Runner {
 
     fn open_camera(&mut self) -> Result<CanonCamera<WpdTransport>, Phase> {
         let devices = list_devices().map_err(|e| Phase::Trouble(format!("Windows wouldn't list devices ({e}).")))?;
-        let entry = devices.iter().find(|d| d.is_canon()).ok_or(Phase::WaitingForCamera)?;
+        let Some(entry) = devices.iter().find(|d| d.is_canon()) else {
+            return Err(self.why_no_camera());
+        };
         self.set_phase(Phase::Starting);
         self.show_card();
         let transport = WpdTransport::open(entry).map_err(|e| {
@@ -316,6 +322,21 @@ impl Runner {
         camera.connect().map_err(|e| Phase::Trouble(format!("{e}.")))?;
         camera.start_live_view().map_err(|e| Phase::Trouble(format!("{e}.")))?;
         Ok(camera)
+    }
+
+    /// No Canon in WPD: either it's simply not there, or a libusb tool took it over. Checking that costs
+    /// a PowerShell start, so it's done when the card first goes up and then every half minute.
+    fn why_no_camera(&mut self) -> Phase {
+        if self.driver_check.is_due(Instant::now()) {
+            self.hijacked = crate::setup::canon_on_generic_usb_driver().is_some();
+        }
+        if self.hijacked {
+            Phase::Trouble(
+                "Your Canon is on a WinUSB driver from Zadig. Open Canon Webcam's Set Up to switch it back.".into(),
+            )
+        } else {
+            Phase::WaitingForCamera
+        }
     }
 
     fn step_live_view(&mut self) {

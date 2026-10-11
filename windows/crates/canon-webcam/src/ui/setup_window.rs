@@ -88,6 +88,8 @@ pub struct SetupWindow {
     badge: TextureHandle,
     install: Arc<Mutex<Job>>,
     camera: Arc<Mutex<Option<String>>>,
+    hijacked: Arc<Mutex<Option<setup::HijackedCamera>>>,
+    driver_fix: Arc<Mutex<Job>>,
     build: u32,
     canon_utility: bool,
 }
@@ -96,13 +98,16 @@ impl SetupWindow {
     pub fn new(ctx: &egui::Context) -> Self {
         style::apply(ctx);
         let camera = Arc::new(Mutex::new(None));
-        // Watch for the Canon, so plugging it in ticks the last step on its own
-        let (seen, repaint) = (camera.clone(), ctx.clone());
+        let hijacked = Arc::new(Mutex::new(None));
+        // Watch for the Canon, so plugging it in (or fixing its driver) ticks the last step on its own
+        let (seen, taken, repaint) = (camera.clone(), hijacked.clone(), ctx.clone());
         std::thread::spawn(move || {
             loop {
                 let found = crate::cli::canon_plugged_in();
-                let changed = *seen.lock().unwrap() != found;
+                let generic = if found.is_none() { setup::canon_on_generic_usb_driver() } else { None };
+                let changed = *seen.lock().unwrap() != found || *taken.lock().unwrap() != generic;
                 *seen.lock().unwrap() = found;
+                *taken.lock().unwrap() = generic;
                 if changed {
                     repaint.request_repaint();
                 }
@@ -114,6 +119,8 @@ impl SetupWindow {
             badge: badge(ctx),
             install,
             camera,
+            hijacked,
+            driver_fix: Arc::new(Mutex::new(Job::Idle)),
             build: setup::windows_build(),
             canon_utility: setup::canon_utility_present(),
         }
@@ -168,12 +175,37 @@ impl eframe::App for SetupWindow {
             });
 
             let camera = self.camera.lock().unwrap().clone();
+            let hijacked = self.hijacked.lock().unwrap().clone();
+            let fix = self.driver_fix.lock().unwrap().clone();
             step(ui, 3, camera.is_some(), "Your camera", |ui| {
-                let text = match &camera {
-                    Some(name) => format!("{name} is plugged in."),
-                    None => "Plug in your Canon over USB and turn it on. You can do this later too.".into(),
-                };
-                ui.label(RichText::new(text).color(style::SECONDARY));
+                match (&camera, &hijacked) {
+                    (Some(name), _) => {
+                        ui.label(RichText::new(format!("{name} is plugged in.")).color(style::SECONDARY));
+                    }
+                    (None, Some(taken)) => {
+                        let text = format!(
+                            "Your Canon is on the {} driver that Zadig installs for libusb tools, which hides it from \
+                             Windows' camera system. Switching it back takes a moment, and Zadig can always redo it.",
+                            taken.driver
+                        );
+                        ui.add(egui::Label::new(RichText::new(text).color(style::WARNING)).wrap());
+                        ui.horizontal(|ui| {
+                            if fix == Job::Working {
+                                ui.spinner();
+                                ui.label("Switching…");
+                            } else if ui.button("Switch back to the Windows camera driver").clicked() {
+                                run_job(&self.driver_fix, &ctx, setup::request_camera_driver_fix);
+                            }
+                        });
+                        if let Job::Failed(reason) = &fix {
+                            ui.add(egui::Label::new(RichText::new(reason).color(style::WARNING)).wrap());
+                        }
+                    }
+                    (None, None) => {
+                        let text = "Plug in your Canon over USB and turn it on. You can do this later too.";
+                        ui.label(RichText::new(text).color(style::SECONDARY));
+                    }
+                }
             });
 
             ui.add_space(8.0);

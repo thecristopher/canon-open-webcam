@@ -11,6 +11,7 @@ Zoom, Teams, Meet ◀── Frame Server ◀── CanonWebcamCamera.dll (Media 
 ```
 
 - **No driver swap.** Canon's own EDSDK reaches the camera through WPD as MTP vendor commands, and so do we.
+  If Zadig ever moved your Canon onto WinUSB for a libusb tool, it's hidden from WPD: `doctor` says so, and Set Up (or `CanonWebcam fix-driver`) hands it back to Windows' own driver.
 - **No signed driver.** Windows 11 virtual cameras are a plain COM DLL that Frame Server loads, so there's nothing for Microsoft to sign.
 - **Wakes up on demand.** The DLL stamps the shared header whenever an app asks for a frame. The engine opens the camera only while that's fresh, and rests it 30 seconds after the last app lets go. Unlike the Mac, there's no guessing involved: the heartbeat says exactly when apps come and go.
 - **A card instead of a frozen picture** when the camera is off, unplugged or busy, and a calm fallback frame if the app itself isn't running.

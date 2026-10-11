@@ -241,6 +241,45 @@ pub fn virtual_camera_visible() -> Option<String> {
     crate::diagnose::camera_names().ok()?.into_iter().find(|name| name.starts_with(CAMERA_NAME))
 }
 
+/// A Canon that Zadig (or another libusb tool) moved onto a generic USB driver. Windows can't share
+/// such a camera through WPD, so it's invisible to us and to Canon's own software until it's moved back.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HijackedCamera {
+    pub driver: String,
+    /// The oemNN.inf package to remove, which hands the camera back to Windows' own driver
+    pub package: String,
+}
+
+pub fn canon_on_generic_usb_driver() -> Option<HijackedCamera> {
+    let script = "Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -match 'VID_04A9' } | ForEach-Object { \
+        $p = Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName DEVPKEY_Device_Service, DEVPKEY_Device_DriverInfPath; \
+        ($p | ForEach-Object { $_.Data }) -join '|' }";
+    let output = hidden("powershell").args(["-NoProfile", "-NonInteractive", "-Command", script]).output().ok()?;
+    String::from_utf8_lossy(&output.stdout).lines().find_map(|line| {
+        let (driver, package) = line.trim().split_once('|')?;
+        let generic = ["winusb", "libusbk", "libusb0"].contains(&driver.to_lowercase().as_str());
+        (generic && package.to_lowercase().starts_with("oem"))
+            .then(|| HijackedCamera { driver: driver.to_string(), package: package.to_string() })
+    })
+}
+
+/// Asks for admin and hands the camera back to Windows' own driver.
+pub fn request_camera_driver_fix() -> Result<()> {
+    run_elevated(&["fix-driver", "--elevated"])
+}
+
+/// The admin half: remove the generic driver package and let Windows pick its own driver again.
+pub fn fix_camera_driver() -> Result<()> {
+    let camera = canon_on_generic_usb_driver().context("the Canon is already on Windows' own driver")?;
+    log!("removing {} ({}) so Windows puts its own camera driver back", camera.package, camera.driver);
+    let removed = hidden("pnputil").args(["/delete-driver", &camera.package, "/uninstall"]).status()?;
+    if !removed.success() {
+        bail!("Windows wouldn't remove the {} driver package", camera.package);
+    }
+    let _ = hidden("pnputil").arg("/scan-devices").status();
+    Ok(())
+}
+
 /// True when Canon's EOS Webcam Utility is on this PC, so offering to bring it back makes sense.
 pub fn canon_utility_present() -> bool {
     CANON_SERVICES.iter().any(|service| service_exists(service))

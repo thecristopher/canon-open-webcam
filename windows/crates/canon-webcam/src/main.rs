@@ -40,6 +40,7 @@ Canon Webcam: use a Canon EOS camera as a webcam
   CanonWebcam set exposure +1         camera: exposure, white-balance, iso, aperture, shutter, color-temp
   CanonWebcam focus                   autofocus, or: focus near 2, focus far 1
   CanonWebcam doctor                  check everything is in place
+  CanonWebcam fix-driver              hand a Canon that Zadig moved to WinUSB back to Windows' camera driver
   CanonWebcam install [--quiet]       install for every app on this PC (asks for admin once)
   CanonWebcam uninstall [--quiet] [--restore-canon]
                                       add --window to either for the checklist window instead
@@ -71,6 +72,8 @@ fn main() {
         Some("install") => report(setup::install(quiet, elevated), quiet),
         Some("uninstall") if gui && !elevated => report(ui::run_uninstall_window(), false),
         Some("uninstall") => report(setup::uninstall(quiet, elevated, flag("--restore-canon")), quiet),
+        Some("fix-driver") if elevated => report(setup::fix_camera_driver(), true),
+        Some("fix-driver") => report(setup::request_camera_driver_fix(), true),
         Some("status") => report(cli::status(), true),
         Some("set") => report(set(&positional), true),
         Some("focus") => report(focus(&positional), true),
