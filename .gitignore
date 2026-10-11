@@ -1,5 +1,4 @@
 .build/
 .swiftpm/
 .DS_Store
-.venv/
 dist/
