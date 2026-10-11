@@ -34,12 +34,7 @@ pub trait Transport {
 
     fn close_session(&mut self) -> Result<()>;
 
-    fn transact(
-        &mut self,
-        operation: Operation,
-        parameters: &[u32],
-        phase: DataPhase<'_>,
-    ) -> Result<Reply>;
+    fn transact(&mut self, operation: Operation, parameters: &[u32], phase: DataPhase<'_>) -> Result<Reply>;
 
     /// The model name when the driver already knows it, so we can skip parsing DeviceInfo.
     fn model_name(&self) -> Option<String> {
@@ -47,18 +42,10 @@ pub trait Transport {
     }
 
     /// Same as transact, but anything other than OK becomes an error.
-    fn require(
-        &mut self,
-        operation: Operation,
-        parameters: &[u32],
-        phase: DataPhase<'_>,
-    ) -> Result<Reply> {
+    fn require(&mut self, operation: Operation, parameters: &[u32], phase: DataPhase<'_>) -> Result<Reply> {
         let reply = self.transact(operation, parameters, phase)?;
         if !reply.is_ok() {
-            return Err(PtpError::Response {
-                code: reply.code,
-                during: operation.code(),
-            });
+            return Err(PtpError::Response { code: reply.code, during: operation.code() });
         }
         Ok(reply)
     }
@@ -73,12 +60,7 @@ impl<T: Transport + ?Sized> Transport for Box<T> {
         (**self).close_session()
     }
 
-    fn transact(
-        &mut self,
-        operation: Operation,
-        parameters: &[u32],
-        phase: DataPhase<'_>,
-    ) -> Result<Reply> {
+    fn transact(&mut self, operation: Operation, parameters: &[u32], phase: DataPhase<'_>) -> Result<Reply> {
         (**self).transact(operation, parameters, phase)
     }
 

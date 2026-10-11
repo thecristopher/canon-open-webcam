@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use canon_shm::{FPS, FRAME_BYTES};
+use canon_shm::FRAME_BYTES;
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Media::KernelStreaming::{IKsControl, IKsControl_Impl, KSIDENTIFIER};
 use windows::Win32::Media::MediaFoundation::*;
@@ -12,9 +12,10 @@ use crate::feed::Feed;
 use crate::log::log;
 use crate::source::ks_not_found;
 
-const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / FPS as u64);
-// Sample durations are in 100ns units
-const FRAME_DURATION: i64 = 10_000_000 / FPS as i64;
+// In "every camera frame" mode, never wait longer than this for one, so apps don't think we froze
+const LONGEST_WAIT: Duration = Duration::from_millis(100);
+// ...and never hand them out faster than 60 a second
+const SHORTEST_GAP: Duration = Duration::from_nanos(1_000_000_000 / 60);
 
 #[implement(IMFMediaStream2, IKsControl)]
 pub struct MediaStream {
@@ -32,10 +33,7 @@ struct Inner {
 }
 
 impl MediaStream {
-    pub fn create(
-        source: IMFMediaSource,
-        descriptor: IMFStreamDescriptor,
-    ) -> windows_core::Result<ComObject<Self>> {
+    pub fn create(source: IMFMediaSource, descriptor: IMFStreamDescriptor) -> windows_core::Result<ComObject<Self>> {
         let queue = unsafe { MFCreateEventQueue()? };
         Ok(ComObject::new(Self {
             inner: Mutex::new(Inner {
@@ -55,21 +53,12 @@ impl MediaStream {
 
     pub fn start(&self, position: *const PROPVARIANT) -> windows_core::Result<()> {
         let queue = self.set_state(MF_STREAM_STATE_RUNNING)?;
-        unsafe {
-            queue.QueueEventParamVar(MEStreamStarted.0 as u32, &GUID::zeroed(), S_OK, position)
-        }
+        unsafe { queue.QueueEventParamVar(MEStreamStarted.0 as u32, &GUID::zeroed(), S_OK, position) }
     }
 
     pub fn stop(&self) -> windows_core::Result<()> {
         let queue = self.set_state(MF_STREAM_STATE_STOPPED)?;
-        unsafe {
-            queue.QueueEventParamVar(
-                MEStreamStopped.0 as u32,
-                &GUID::zeroed(),
-                S_OK,
-                std::ptr::null(),
-            )
-        }
+        unsafe { queue.QueueEventParamVar(MEStreamStopped.0 as u32, &GUID::zeroed(), S_OK, std::ptr::null()) }
     }
 
     pub fn shutdown(&self) {
@@ -87,28 +76,37 @@ impl MediaStream {
     }
 
     fn queue(&self) -> windows_core::Result<IMFMediaEventQueue> {
-        self.inner
-            .lock()
-            .unwrap()
-            .queue
-            .clone()
-            .ok_or_else(|| MF_E_SHUTDOWN.into())
+        self.inner.lock().unwrap().queue.clone().ok_or_else(|| MF_E_SHUTDOWN.into())
     }
 
-    /// Waits until the next frame is due, so apps get a steady 30fps instead of as fast as they can ask.
-    fn pace(&self) {
+    /// Waits until the next frame is due: a steady beat at 30 or 60, or the moment the camera's next frame lands.
+    /// Returns how long this frame will be on screen, in 100ns units, for the sample's duration.
+    fn pace(&self) -> i64 {
+        let rate = self.feed.lock().unwrap().frame_rate();
         let mut next_due = self.next_due.lock().unwrap();
         let now = Instant::now();
-        let due = next_due
-            .filter(|due| *due > now - FRAME_INTERVAL)
-            .unwrap_or(now);
+        if rate == 0 {
+            let earliest = next_due.unwrap_or(now);
+            let deadline = now + LONGEST_WAIT;
+            while Instant::now() < deadline
+                && (Instant::now() < earliest || !self.feed.lock().unwrap().fresh_frame_waiting())
+            {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            let delivered = Instant::now();
+            *next_due = Some(delivered + SHORTEST_GAP);
+            return (delivered - now).max(SHORTEST_GAP).as_nanos() as i64 / 100;
+        }
+        let interval = Duration::from_nanos(1_000_000_000 / u64::from(rate));
+        let due = next_due.filter(|due| *due > now - interval).unwrap_or(now);
         if due > now {
             std::thread::sleep(due - now);
         }
-        *next_due = Some(due + FRAME_INTERVAL);
+        *next_due = Some(due + interval);
+        interval.as_nanos() as i64 / 100
     }
 
-    fn sample(&self) -> windows_core::Result<IMFSample> {
+    fn sample(&self, duration: i64) -> windows_core::Result<IMFSample> {
         unsafe {
             let buffer = MFCreateMemoryBuffer(FRAME_BYTES as u32)?;
             let mut data = std::ptr::null_mut();
@@ -123,28 +121,18 @@ impl MediaStream {
             let sample = MFCreateSample()?;
             sample.AddBuffer(&buffer)?;
             sample.SetSampleTime(MFGetSystemTime())?;
-            sample.SetSampleDuration(FRAME_DURATION)?;
+            sample.SetSampleDuration(duration)?;
             Ok(sample)
         }
     }
 }
 
 impl IMFMediaEventGenerator_Impl for MediaStream_Impl {
-    fn GetEvent(
-        &self,
-        flags: MEDIA_EVENT_GENERATOR_GET_EVENT_FLAGS,
-    ) -> windows_core::Result<IMFMediaEvent> {
+    fn GetEvent(&self, flags: MEDIA_EVENT_GENERATOR_GET_EVENT_FLAGS) -> windows_core::Result<IMFMediaEvent> {
         unsafe { self.queue()?.GetEvent(flags.0) }
     }
-    fn BeginGetEvent(
-        &self,
-        callback: Ref<IMFAsyncCallback>,
-        state: Ref<IUnknown>,
-    ) -> windows_core::Result<()> {
-        unsafe {
-            self.queue()?
-                .BeginGetEvent(callback.as_ref(), state.as_ref())
-        }
+    fn BeginGetEvent(&self, callback: Ref<IMFAsyncCallback>, state: Ref<IUnknown>) -> windows_core::Result<()> {
+        unsafe { self.queue()?.BeginGetEvent(callback.as_ref(), state.as_ref()) }
     }
     fn EndGetEvent(&self, result: Ref<IMFAsyncResult>) -> windows_core::Result<IMFMediaEvent> {
         unsafe { self.queue()?.EndGetEvent(result.as_ref()) }
@@ -156,21 +144,13 @@ impl IMFMediaEventGenerator_Impl for MediaStream_Impl {
         status: windows_core::HRESULT,
         value: *const PROPVARIANT,
     ) -> windows_core::Result<()> {
-        unsafe {
-            self.queue()?
-                .QueueEventParamVar(met, extended, status, value)
-        }
+        unsafe { self.queue()?.QueueEventParamVar(met, extended, status, value) }
     }
 }
 
 impl IMFMediaStream_Impl for MediaStream_Impl {
     fn GetMediaSource(&self) -> windows_core::Result<IMFMediaSource> {
-        self.inner
-            .lock()
-            .unwrap()
-            .source
-            .clone()
-            .ok_or_else(|| MF_E_SHUTDOWN.into())
+        self.inner.lock().unwrap().source.clone().ok_or_else(|| MF_E_SHUTDOWN.into())
     }
 
     fn GetStreamDescriptor(&self) -> windows_core::Result<IMFStreamDescriptor> {
@@ -187,16 +167,13 @@ impl IMFMediaStream_Impl for MediaStream_Impl {
                 return Err(MF_E_MEDIA_SOURCE_WRONGSTATE.into());
             }
         }
-        self.pace();
-        let sample = self
-            .sample()
-            .inspect_err(|e| log!("couldn't build a sample: {e}"))?;
+        let duration = self.pace();
+        let sample = self.sample(duration).inspect_err(|e| log!("couldn't build a sample: {e}"))?;
         unsafe {
             if let Some(token) = token.as_ref() {
                 sample.SetUnknown(&MFSampleExtension_Token, token)?;
             }
-            self.queue()?
-                .QueueEventParamUnk(MEMediaSample.0 as u32, &GUID::zeroed(), S_OK, &sample)
+            self.queue()?.QueueEventParamUnk(MEMediaSample.0 as u32, &GUID::zeroed(), S_OK, &sample)
         }
     }
 }

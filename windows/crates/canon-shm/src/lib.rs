@@ -40,14 +40,7 @@ pub fn rgb_to_nv12(rgb: &[u8], width: usize, height: usize, nv12: &mut [u8]) {
     to_nv12(rgb, 3, [0, 1, 2], width, height, nv12);
 }
 
-fn to_nv12(
-    pixels: &[u8],
-    step: usize,
-    [r, g, b]: [usize; 3],
-    width: usize,
-    height: usize,
-    nv12: &mut [u8],
-) {
+fn to_nv12(pixels: &[u8], step: usize, [r, g, b]: [usize; 3], width: usize, height: usize, nv12: &mut [u8]) {
     let (luma, chroma) = nv12.split_at_mut(width * height);
     // Fixed point BT.709 limited range, coefficients scaled by 256 and rounded so each chroma row sums to zero
     for y in 0..height {
@@ -71,8 +64,7 @@ fn to_nv12(
             }
             let (pr, pg, pb) = (sr / 4, sg / 4, sb / 4);
             out[cx * 2] = (((-26 * pr - 87 * pg + 113 * pb + 128) >> 8) + 128).clamp(0, 255) as u8;
-            out[cx * 2 + 1] =
-                (((112 * pr - 102 * pg - 10 * pb + 128) >> 8) + 128).clamp(0, 255) as u8;
+            out[cx * 2 + 1] = (((112 * pr - 102 * pg - 10 * pb + 128) >> 8) + 128).clamp(0, 255) as u8;
         }
     }
 }
@@ -104,12 +96,7 @@ mod tests {
     #[test]
     fn bgra_reads_the_channels_in_its_own_order() {
         let mut nv12 = vec![0u8; 4 * 4 * 3 / 2];
-        let blue_bgra: Vec<u8> = [255u8, 0, 0, 255]
-            .iter()
-            .copied()
-            .cycle()
-            .take(4 * 4 * 4)
-            .collect();
+        let blue_bgra: Vec<u8> = [255u8, 0, 0, 255].iter().copied().cycle().take(4 * 4 * 4).collect();
         bgra_to_nv12(&blue_bgra, 4, 4, &mut nv12);
         assert!(nv12[16] > 230, "blue should push u up, got {}", nv12[16]);
     }

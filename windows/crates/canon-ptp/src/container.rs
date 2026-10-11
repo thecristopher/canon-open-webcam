@@ -16,21 +16,11 @@ impl Container {
     pub const HEADER_SIZE: usize = 12;
 
     pub fn command(operation: Operation, transaction_id: u32, parameters: &[u32]) -> Self {
-        Self {
-            kind: ContainerType::Command,
-            code: operation.code(),
-            transaction_id,
-            payload: packed(parameters),
-        }
+        Self { kind: ContainerType::Command, code: operation.code(), transaction_id, payload: packed(parameters) }
     }
 
     pub fn data(operation: Operation, transaction_id: u32, payload: &[u8]) -> Self {
-        Self {
-            kind: ContainerType::Data,
-            code: operation.code(),
-            transaction_id,
-            payload: payload.to_vec(),
-        }
+        Self { kind: ContainerType::Data, code: operation.code(), transaction_id, payload: payload.to_vec() }
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -49,31 +39,18 @@ impl Container {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let (Some(length), Some(raw_kind), Some(code), Some(transaction_id)) = (
-            u32_at(bytes, 0),
-            u16_at(bytes, 4),
-            u16_at(bytes, 6),
-            u32_at(bytes, 8),
-        ) else {
-            return Err(PtpError::Malformed(
-                "container shorter than its header".into(),
-            ));
+        let (Some(length), Some(raw_kind), Some(code), Some(transaction_id)) =
+            (u32_at(bytes, 0), u16_at(bytes, 4), u16_at(bytes, 6), u32_at(bytes, 8))
+        else {
+            return Err(PtpError::Malformed("container shorter than its header".into()));
         };
         let kind = ContainerType::from_raw(raw_kind)
             .ok_or_else(|| PtpError::Malformed(format!("unknown container type {raw_kind}")))?;
         let length = length as usize;
         if length > bytes.len() || length < Self::HEADER_SIZE {
-            return Err(PtpError::Malformed(format!(
-                "container says {length} bytes but has {}",
-                bytes.len()
-            )));
+            return Err(PtpError::Malformed(format!("container says {length} bytes but has {}", bytes.len())));
         }
-        Ok(Self {
-            kind,
-            code,
-            transaction_id,
-            payload: bytes[Self::HEADER_SIZE..length].to_vec(),
-        })
+        Ok(Self { kind, code, transaction_id, payload: bytes[Self::HEADER_SIZE..length].to_vec() })
     }
 
     pub fn parameters(&self) -> Vec<u32> {
@@ -97,10 +74,7 @@ pub struct ContainerSession<Io> {
 
 impl<Io: ContainerIo> ContainerSession<Io> {
     pub fn new(io: Io) -> Self {
-        Self {
-            io,
-            next_transaction_id: 0,
-        }
+        Self { io, next_transaction_id: 0 }
     }
 
     pub fn io(&self) -> &Io {
@@ -124,36 +98,21 @@ impl<Io: ContainerIo> Transport for ContainerSession<Io> {
             self.transact(Operation::CloseSession, &[], DataPhase::None)?;
             self.require(Operation::OpenSession, &[1], DataPhase::None)?;
         } else if !opened.is_ok() {
-            return Err(PtpError::Response {
-                code: opened.code,
-                during: Operation::OpenSession.code(),
-            });
+            return Err(PtpError::Response { code: opened.code, during: Operation::OpenSession.code() });
         }
         Ok(())
     }
 
     fn close_session(&mut self) -> Result<()> {
-        self.transact(Operation::CloseSession, &[], DataPhase::None)
-            .map(|_| ())
+        self.transact(Operation::CloseSession, &[], DataPhase::None).map(|_| ())
     }
 
-    fn transact(
-        &mut self,
-        operation: Operation,
-        parameters: &[u32],
-        phase: DataPhase<'_>,
-    ) -> Result<Reply> {
+    fn transact(&mut self, operation: Operation, parameters: &[u32], phase: DataPhase<'_>) -> Result<Reply> {
         // OpenSession must be transaction 0, everything after counts up from there
-        let transaction_id = if operation == Operation::OpenSession {
-            0
-        } else {
-            self.take_transaction_id()
-        };
-        self.io
-            .send(&Container::command(operation, transaction_id, parameters).encode())?;
+        let transaction_id = if operation == Operation::OpenSession { 0 } else { self.take_transaction_id() };
+        self.io.send(&Container::command(operation, transaction_id, parameters).encode())?;
         if let DataPhase::Write(outgoing) = phase {
-            self.io
-                .send(&Container::data(operation, transaction_id, outgoing).encode())?;
+            self.io.send(&Container::data(operation, transaction_id, outgoing).encode())?;
         }
 
         let mut incoming = Vec::new();
@@ -168,11 +127,7 @@ impl<Io: ContainerIo> Transport for ContainerSession<Io> {
                             got: container.transaction_id,
                         });
                     }
-                    return Ok(Reply {
-                        code: container.code,
-                        data: incoming,
-                        parameters: container.parameters(),
-                    });
+                    return Ok(Reply { code: container.code, data: incoming, parameters: container.parameters() });
                 }
                 // Stray events on the bulk pipe are noise, the interesting ones come through GetEvent
                 ContainerType::Command | ContainerType::Event => continue,
@@ -200,10 +155,7 @@ pub(crate) mod tests {
         }
 
         pub fn commands(&self) -> Vec<&Container> {
-            self.sent
-                .iter()
-                .filter(|c| c.kind == ContainerType::Command)
-                .collect()
+            self.sent.iter().filter(|c| c.kind == ContainerType::Command).collect()
         }
     }
 
@@ -219,38 +171,24 @@ pub(crate) mod tests {
             let (answer, data) = self.answers.pop_front().unwrap_or((ResponseCode::Ok, None));
             if let Some(data) = data {
                 self.inbox.push_back(
-                    Container {
-                        kind: ContainerType::Data,
-                        code,
-                        transaction_id: tid,
-                        payload: data,
-                    }
-                    .encode(),
+                    Container { kind: ContainerType::Data, code, transaction_id: tid, payload: data }.encode(),
                 );
             }
             self.inbox.push_back(
-                Container {
-                    kind: ContainerType::Response,
-                    code: answer.code(),
-                    transaction_id: tid,
-                    payload: vec![],
-                }
-                .encode(),
+                Container { kind: ContainerType::Response, code: answer.code(), transaction_id: tid, payload: vec![] }
+                    .encode(),
             );
             Ok(())
         }
 
         fn receive_container(&mut self) -> Result<Vec<u8>> {
-            self.inbox
-                .pop_front()
-                .ok_or_else(|| PtpError::Transport("fake camera has nothing to say".into()))
+            self.inbox.pop_front().ok_or_else(|| PtpError::Transport("fake camera has nothing to say".into()))
         }
     }
 
     #[test]
     fn encode_and_decode_round_trip() {
-        let original =
-            Container::command(Operation::CanonGetViewFinderData, 7, &[0x0020_0000, 0, 0]);
+        let original = Container::command(Operation::CanonGetViewFinderData, 7, &[0x0020_0000, 0, 0]);
         let bytes = original.encode();
         assert_eq!(Container::declared_length(&bytes), Some(24));
         assert_eq!(Container::decode(&bytes).unwrap(), original);
@@ -261,10 +199,7 @@ pub(crate) mod tests {
     fn a_truncated_container_is_rejected() {
         let mut bytes = Container::command(Operation::OpenSession, 0, &[1]).encode();
         bytes.pop();
-        assert!(matches!(
-            Container::decode(&bytes),
-            Err(PtpError::Malformed(_))
-        ));
+        assert!(matches!(Container::decode(&bytes), Err(PtpError::Malformed(_))));
     }
 
     #[test]
@@ -278,18 +213,9 @@ pub(crate) mod tests {
     fn transactions_count_up_after_opening() {
         let mut session = ContainerSession::new(FakeCable::default());
         session.open_session().unwrap();
-        session
-            .transact(Operation::CanonGetEvent, &[], DataPhase::Read)
-            .unwrap();
-        session
-            .transact(Operation::CanonGetEvent, &[], DataPhase::Read)
-            .unwrap();
-        let ids: Vec<u32> = session
-            .io()
-            .commands()
-            .iter()
-            .map(|c| c.transaction_id)
-            .collect();
+        session.transact(Operation::CanonGetEvent, &[], DataPhase::Read).unwrap();
+        session.transact(Operation::CanonGetEvent, &[], DataPhase::Read).unwrap();
+        let ids: Vec<u32> = session.io().commands().iter().map(|c| c.transaction_id).collect();
         assert_eq!(ids, vec![0, 1, 2]);
     }
 
@@ -307,27 +233,16 @@ pub(crate) mod tests {
     fn data_sent_by_the_camera_lands_in_the_reply() {
         let mut cable = FakeCable::default();
         cable.answer(ResponseCode::Ok, Some(vec![1, 2, 3]));
-        let reply = ContainerSession::new(cable)
-            .transact(Operation::CanonGetEvent, &[], DataPhase::Read)
-            .unwrap();
+        let reply = ContainerSession::new(cable).transact(Operation::CanonGetEvent, &[], DataPhase::Read).unwrap();
         assert_eq!(reply.data, vec![1, 2, 3]);
     }
 
     #[test]
     fn outgoing_data_follows_the_command_with_the_same_transaction() {
         let mut session = ContainerSession::new(FakeCable::default());
-        session
-            .transact(
-                Operation::CanonSetPropertyValue,
-                &[],
-                DataPhase::Write(&[9]),
-            )
-            .unwrap();
+        session.transact(Operation::CanonSetPropertyValue, &[], DataPhase::Write(&[9])).unwrap();
         let sent = &session.io().sent;
-        assert_eq!(
-            sent.iter().map(|c| c.kind).collect::<Vec<_>>(),
-            vec![ContainerType::Command, ContainerType::Data]
-        );
+        assert_eq!(sent.iter().map(|c| c.kind).collect::<Vec<_>>(), vec![ContainerType::Command, ContainerType::Data]);
         assert_eq!(sent[0].transaction_id, sent[1].transaction_id);
     }
 
@@ -335,15 +250,7 @@ pub(crate) mod tests {
     fn require_turns_a_bad_answer_into_an_error() {
         let mut cable = FakeCable::default();
         cable.answer(ResponseCode::GeneralError, None);
-        let err = ContainerSession::new(cable)
-            .require(Operation::CanonGetEvent, &[], DataPhase::Read)
-            .unwrap_err();
-        assert_eq!(
-            err,
-            PtpError::Response {
-                code: 0x2002,
-                during: 0x9116
-            }
-        );
+        let err = ContainerSession::new(cable).require(Operation::CanonGetEvent, &[], DataPhase::Read).unwrap_err();
+        assert_eq!(err, PtpError::Response { code: 0x2002, during: 0x9116 });
     }
 }

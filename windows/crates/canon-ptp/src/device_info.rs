@@ -2,10 +2,7 @@ use crate::bytes::{u16_at, u32_at};
 
 /// Pulls "Canon EOS 1500D" out of the PTP DeviceInfo dataset, since the USB name is just "Canon Digital Camera".
 pub fn model_name(info: &[u8]) -> Option<String> {
-    let mut reader = DatasetReader {
-        bytes: info,
-        offset: 0,
-    };
+    let mut reader = DatasetReader { bytes: info, offset: 0 };
     // Fixed header: standard version, vendor extension id and version, extension description, functional mode
     reader.skip(2 + 4 + 2)?;
     reader.string()?;
@@ -82,18 +79,12 @@ mod tests {
 
     #[test]
     fn the_brand_is_not_repeated() {
-        assert_eq!(
-            model_name(&device_info("Canon Inc.", "Canon EOS 1500D")).as_deref(),
-            Some("Canon EOS 1500D")
-        );
+        assert_eq!(model_name(&device_info("Canon Inc.", "Canon EOS 1500D")).as_deref(), Some("Canon EOS 1500D"));
     }
 
     #[test]
     fn a_bare_model_gets_the_manufacturer() {
-        assert_eq!(
-            model_name(&device_info("Canon Inc.", "EOS R")).as_deref(),
-            Some("Canon Inc. EOS R")
-        );
+        assert_eq!(model_name(&device_info("Canon Inc.", "EOS R")).as_deref(), Some("Canon Inc. EOS R"));
     }
 
     #[test]

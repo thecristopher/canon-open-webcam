@@ -1,9 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use windows::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
-use windows::Win32::UI::WindowsAndMessaging::{
-    IDYES, MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_YESNO, MessageBoxW,
-};
+use windows::Win32::UI::WindowsAndMessaging::{MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MessageBoxW};
 use windows_core::HSTRING;
 
 // The exe is a GUI app so double clicking it doesn't flash a console.
@@ -26,40 +24,15 @@ pub fn tell(text: &str, quiet: bool) {
         println!("{text}");
     }
     if !quiet && !attached() {
-        unsafe {
-            MessageBoxW(
-                None,
-                &HSTRING::from(text),
-                &HSTRING::from("Canon Webcam"),
-                MB_OK | MB_ICONINFORMATION,
-            )
-        };
+        unsafe { MessageBoxW(None, &HSTRING::from(text), &HSTRING::from("Canon Webcam"), MB_OK | MB_ICONINFORMATION) };
     }
 }
 
 pub fn warn(text: &str, quiet: bool) {
     if attached() {
-        eprintln!("{text}");
+        eprintln!("Error: {text}");
     }
     if !quiet && !attached() {
-        unsafe {
-            MessageBoxW(
-                None,
-                &HSTRING::from(text),
-                &HSTRING::from("Canon Webcam"),
-                MB_OK | MB_ICONWARNING,
-            )
-        };
-    }
-}
-
-pub fn ask(text: &str) -> bool {
-    unsafe {
-        MessageBoxW(
-            None,
-            &HSTRING::from(text),
-            &HSTRING::from("Canon Webcam"),
-            MB_YESNO | MB_ICONINFORMATION,
-        ) == IDYES
+        unsafe { MessageBoxW(None, &HSTRING::from(text), &HSTRING::from("Canon Webcam"), MB_OK | MB_ICONWARNING) };
     }
 }

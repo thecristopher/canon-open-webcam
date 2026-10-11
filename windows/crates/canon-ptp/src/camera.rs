@@ -22,9 +22,7 @@ impl CameraState {
     }
 
     pub fn choices(&self, property: CanonProperty) -> &[u32] {
-        self.choices
-            .get(&property.code())
-            .map_or(&[], Vec::as_slice)
+        self.choices.get(&property.code()).map_or(&[], Vec::as_slice)
     }
 
     pub fn apply(&mut self, events: &[CameraEvent]) {
@@ -75,18 +73,13 @@ impl<T: Transport> CanonCamera<T> {
     pub fn connect(&mut self) -> Result<()> {
         self.transport.open_session()?;
         if let Some(name) = self.transport.model_name().or_else(|| {
-            let info = self
-                .transport
-                .require(Operation::GetDeviceInfo, &[], DataPhase::Read)
-                .ok()?;
+            let info = self.transport.require(Operation::GetDeviceInfo, &[], DataPhase::Read).ok()?;
             model_name(&info.data)
         }) {
             self.model = name;
         }
-        self.transport
-            .require(Operation::CanonSetRemoteMode, &[1], DataPhase::None)?;
-        self.transport
-            .require(Operation::CanonSetEventMode, &[1], DataPhase::None)?;
+        self.transport.require(Operation::CanonSetRemoteMode, &[1], DataPhase::None)?;
+        self.transport.require(Operation::CanonSetEventMode, &[1], DataPhase::None)?;
         // The first GetEvent dumps every property and its allowed values
         self.poll_events()?;
         Ok(())
@@ -97,16 +90,9 @@ impl<T: Transport> CanonCamera<T> {
         if self.state.value(CanonProperty::LiveViewMode) != Some(1) {
             // Movie mode answers busy here but streams anyway, so busy is fine
             let payload = property_payload(CanonProperty::LiveViewMode, 1);
-            let reply = self.transport.transact(
-                Operation::CanonSetPropertyValue,
-                &[],
-                DataPhase::Write(&payload),
-            )?;
+            let reply = self.transport.transact(Operation::CanonSetPropertyValue, &[], DataPhase::Write(&payload))?;
             if !reply.is_ok() && reply.code != ResponseCode::DeviceBusy.code() {
-                return Err(PtpError::Response {
-                    code: reply.code,
-                    during: Operation::CanonSetPropertyValue.code(),
-                });
+                return Err(PtpError::Response { code: reply.code, during: Operation::CanonSetPropertyValue.code() });
             }
         }
         // Computer only, so the rear screen goes dark and the sensor runs a bit cooler
@@ -115,29 +101,19 @@ impl<T: Transport> CanonCamera<T> {
 
     /// One attempt at a frame. None means the camera hasn't produced a new one yet, so ask again shortly.
     pub fn next_frame(&mut self) -> Result<Option<Vec<u8>>> {
-        let reply = self.transport.transact(
-            Operation::CanonGetViewFinderData,
-            &[0x0020_0000, 0, 0],
-            DataPhase::Read,
-        )?;
-        if reply.code == ResponseCode::CanonNotReady.code()
-            || reply.code == ResponseCode::DeviceBusy.code()
-        {
+        let reply =
+            self.transport.transact(Operation::CanonGetViewFinderData, &[0x0020_0000, 0, 0], DataPhase::Read)?;
+        if reply.code == ResponseCode::CanonNotReady.code() || reply.code == ResponseCode::DeviceBusy.code() {
             return Ok(None);
         }
         if !reply.is_ok() {
-            return Err(PtpError::Response {
-                code: reply.code,
-                during: Operation::CanonGetViewFinderData.code(),
-            });
+            return Err(PtpError::Response { code: reply.code, during: Operation::CanonGetViewFinderData.code() });
         }
         Ok(jpeg_from_viewfinder(&reply.data).map(<[u8]>::to_vec))
     }
 
     pub fn poll_events(&mut self) -> Result<Vec<CameraEvent>> {
-        let reply = self
-            .transport
-            .require(Operation::CanonGetEvent, &[], DataPhase::Read)?;
+        let reply = self.transport.require(Operation::CanonGetEvent, &[], DataPhase::Read)?;
         let events = parse_canon_events(&reply.data);
         self.state.apply(&events);
         Ok(events)
@@ -145,48 +121,32 @@ impl<T: Transport> CanonCamera<T> {
 
     pub fn set(&mut self, property: CanonProperty, value: u32) -> Result<()> {
         let payload = property_payload(property, value);
-        self.transport.require(
-            Operation::CanonSetPropertyValue,
-            &[],
-            DataPhase::Write(&payload),
-        )?;
+        self.transport.require(Operation::CanonSetPropertyValue, &[], DataPhase::Write(&payload))?;
         self.state.values.insert(property.code(), value);
         Ok(())
     }
 
     /// Stops the camera from powering itself off mid meeting.
     pub fn keep_awake(&mut self) -> Result<()> {
-        self.transport
-            .transact(Operation::CanonKeepDeviceOn, &[], DataPhase::None)
-            .map(|_| ())
+        self.transport.transact(Operation::CanonKeepDeviceOn, &[], DataPhase::None).map(|_| ())
     }
 
     pub fn autofocus(&mut self) -> Result<()> {
-        self.transport
-            .require(Operation::CanonDoAutofocus, &[], DataPhase::None)?;
-        self.transport
-            .transact(Operation::CanonCancelAutofocus, &[], DataPhase::None)?;
+        self.transport.require(Operation::CanonDoAutofocus, &[], DataPhase::None)?;
+        self.transport.transact(Operation::CanonCancelAutofocus, &[], DataPhase::None)?;
         Ok(())
     }
 
     pub fn drive_focus(&mut self, step: LensDrive) -> Result<()> {
-        self.transport
-            .require(Operation::CanonDriveLens, &[step as u32], DataPhase::None)
-            .map(|_| ())
+        self.transport.require(Operation::CanonDriveLens, &[step as u32], DataPhase::None).map(|_| ())
     }
 
     /// Hands the camera back the way we found it. Errors are ignored since the cable may already be gone.
     pub fn disconnect(&mut self) {
-        let output = self
-            .live_view_output_before_us
-            .unwrap_or(LiveViewOutput::CAMERA_SCREEN);
+        let output = self.live_view_output_before_us.unwrap_or(LiveViewOutput::CAMERA_SCREEN);
         let _ = self.set(CanonProperty::LiveViewOutput, output);
-        let _ = self
-            .transport
-            .transact(Operation::CanonSetEventMode, &[0], DataPhase::None);
-        let _ = self
-            .transport
-            .transact(Operation::CanonSetRemoteMode, &[0], DataPhase::None);
+        let _ = self.transport.transact(Operation::CanonSetEventMode, &[0], DataPhase::None);
+        let _ = self.transport.transact(Operation::CanonSetRemoteMode, &[0], DataPhase::None);
         let _ = self.transport.close_session();
     }
 }
@@ -214,10 +174,7 @@ mod tests {
         cable.answer(ResponseCode::GeneralError, None); // GetDeviceInfo is optional
         cable.answer(ResponseCode::Ok, None); // SetRemoteMode
         cable.answer(ResponseCode::Ok, None); // SetEventMode
-        cable.answer(
-            ResponseCode::Ok,
-            Some(packed(&[16, 0xC189, 0xD1B1, 1, 8, 0])),
-        ); // GetEvent
+        cable.answer(ResponseCode::Ok, Some(packed(&[16, 0xC189, 0xD1B1, 1, 8, 0]))); // GetEvent
         let mut camera = CanonCamera::new(ContainerSession::new(cable));
         camera.connect().unwrap();
         assert_eq!(camera.state().value(CanonProperty::LiveViewMode), Some(1));
@@ -237,10 +194,7 @@ mod tests {
         let mut cable = FakeCable::default();
         cable.answer(ResponseCode::Ok, Some(jpeg_blob(&[0xFF, 0xD8, 0xFF, 0xD9])));
         let mut camera = CanonCamera::new(ContainerSession::new(cable));
-        assert_eq!(
-            camera.next_frame().unwrap(),
-            Some(vec![0xFF, 0xD8, 0xFF, 0xD9])
-        );
+        assert_eq!(camera.next_frame().unwrap(), Some(vec![0xFF, 0xD8, 0xFF, 0xD9]));
     }
 
     #[test]
@@ -250,9 +204,6 @@ mod tests {
         cable.answer(ResponseCode::Ok, None); // set output to computer
         let mut camera = CanonCamera::new(ContainerSession::new(cable));
         camera.start_live_view().unwrap();
-        assert_eq!(
-            camera.state().value(CanonProperty::LiveViewOutput),
-            Some(LiveViewOutput::COMPUTER)
-        );
+        assert_eq!(camera.state().value(CanonProperty::LiveViewOutput), Some(LiveViewOutput::COMPUTER));
     }
 }

@@ -1,4 +1,4 @@
-use canon_shm::{FRAME_BYTES, HEIGHT, SharedFrames, WIDTH, tick_ms};
+use canon_shm::{FPS, FRAME_BYTES, HEIGHT, SharedFrames, WIDTH, tick_ms};
 
 use crate::log::log;
 
@@ -19,13 +19,29 @@ impl Feed {
     pub fn new() -> Self {
         let mut frame = vec![0u8; FRAME_BYTES];
         paint_fallback(&mut frame);
-        Self {
-            shared: None,
-            last_attempt: 0,
-            sequence: 0,
-            frame,
-            showing_fallback: true,
+        Self { shared: None, last_attempt: 0, sequence: 0, frame, showing_fallback: true }
+    }
+
+    /// How fast to hand frames out: 30 or 60, or 0 for each camera frame as it lands.
+    /// Until the engine is up and has said, a steady 30.
+    pub fn frame_rate(&self) -> u32 {
+        match &self.shared {
+            Some(shared) if shared.writer_idle_ms().is_some_and(|idle| idle <= ENGINE_GONE_MS) => {
+                match shared.frame_rate() {
+                    rate @ (0 | 30 | 60) => rate,
+                    _ => FPS,
+                }
+            }
+            _ => FPS,
         }
+    }
+
+    /// True when the engine has finished a frame we haven't handed out yet.
+    pub fn fresh_frame_waiting(&self) -> bool {
+        self.shared.as_ref().is_some_and(|shared| {
+            let sequence = shared.sequence();
+            sequence != self.sequence && sequence & 1 == 0
+        })
     }
 
     /// The frame to hand out right now. Also tells the engine someone is watching.
@@ -34,14 +50,7 @@ impl Feed {
             self.last_attempt = tick_ms();
             match SharedFrames::open_or_create() {
                 Ok(shared) => {
-                    log!(
-                        "frame buffer {}",
-                        if shared.created() {
-                            "created"
-                        } else {
-                            "opened"
-                        }
-                    );
+                    log!("frame buffer {}", if shared.created() { "created" } else { "opened" });
                     self.shared = Some(shared);
                 }
                 Err(e) => log!("couldn't open the frame buffer: {e}"),
@@ -55,11 +64,7 @@ impl Feed {
         if let Some(sequence) = shared.read_frame(self.sequence, &mut self.frame) {
             self.sequence = sequence;
             self.showing_fallback = false;
-        } else if !self.showing_fallback
-            && shared
-                .writer_idle_ms()
-                .is_none_or(|idle| idle > ENGINE_GONE_MS)
-        {
+        } else if !self.showing_fallback && shared.writer_idle_ms().is_none_or(|idle| idle > ENGINE_GONE_MS) {
             log!("engine stopped writing, showing the fallback frame");
             paint_fallback(&mut self.frame);
             self.showing_fallback = true;

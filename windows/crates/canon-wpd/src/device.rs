@@ -23,16 +23,14 @@ pub struct DeviceEntry {
 
 impl DeviceEntry {
     pub fn is_canon(&self) -> bool {
-        self.id.to_lowercase().contains(CANON_VENDOR)
-            || self.manufacturer.to_lowercase().contains("canon")
+        self.id.to_lowercase().contains(CANON_VENDOR) || self.manufacturer.to_lowercase().contains("canon")
     }
 }
 
 /// Every portable device Windows knows about right now: cameras, phones, media players.
 pub fn list_devices() -> windows::core::Result<Vec<DeviceEntry>> {
     unsafe {
-        let manager: IPortableDeviceManager =
-            CoCreateInstance(&PortableDeviceManager, None, CLSCTX_INPROC_SERVER)?;
+        let manager: IPortableDeviceManager = CoCreateInstance(&PortableDeviceManager, None, CLSCTX_INPROC_SERVER)?;
         let mut count = 0u32;
         manager.GetDevices(std::ptr::null_mut(), &mut count)?;
         let mut ids = vec![PWSTR::null(); count as usize];
@@ -76,36 +74,24 @@ pub struct WpdTransport {
 impl WpdTransport {
     pub fn open(entry: &DeviceEntry) -> windows::core::Result<Self> {
         unsafe {
-            let device: IPortableDevice =
-                CoCreateInstance(&PortableDeviceFTM, None, CLSCTX_INPROC_SERVER)?;
+            let device: IPortableDevice = CoCreateInstance(&PortableDeviceFTM, None, CLSCTX_INPROC_SERVER)?;
             let client = new_values()?;
             client.SetStringValue(&WPD_CLIENT_NAME, &HSTRING::from("Canon Webcam"))?;
             client.SetUnsignedIntegerValue(&WPD_CLIENT_MAJOR_VERSION, 0)?;
             client.SetUnsignedIntegerValue(&WPD_CLIENT_MINOR_VERSION, 1)?;
             client.SetUnsignedIntegerValue(&WPD_CLIENT_REVISION, 0)?;
-            client.SetUnsignedIntegerValue(
-                &WPD_CLIENT_SECURITY_QUALITY_OF_SERVICE,
-                SECURITY_IMPERSONATION,
-            )?;
+            client.SetUnsignedIntegerValue(&WPD_CLIENT_SECURITY_QUALITY_OF_SERVICE, SECURITY_IMPERSONATION)?;
             device.Open(&HSTRING::from(entry.id.as_str()), &client)?;
-            Ok(Self {
-                device,
-                name: entry.name.clone(),
-            })
+            Ok(Self { device, name: entry.name.clone() })
         }
     }
 
     /// Opcodes beyond the PTP standard that the camera told the driver it understands.
     pub fn vendor_operations(&self) -> windows::core::Result<Vec<u32>> {
         unsafe {
-            let results =
-                self.send(
-                    &WPD_COMMAND_MTP_EXT_GET_SUPPORTED_VENDOR_OPCODES,
-                    |_| Ok(()),
-                )?;
-            let codes = results.GetIPortableDevicePropVariantCollectionValue(
-                &WPD_PROPERTY_MTP_EXT_VENDOR_OPERATION_CODES,
-            )?;
+            let results = self.send(&WPD_COMMAND_MTP_EXT_GET_SUPPORTED_VENDOR_OPCODES, |_| Ok(()))?;
+            let codes =
+                results.GetIPortableDevicePropVariantCollectionValue(&WPD_PROPERTY_MTP_EXT_VENDOR_OPERATION_CODES)?;
             collection_to_u32s(&codes)
         }
     }
@@ -136,43 +122,23 @@ impl WpdTransport {
     ) -> windows::core::Result<IPortableDeviceValues> {
         let collection = u32s_to_collection(parameters)?;
         self.send(command, |p| unsafe {
-            p.SetUnsignedIntegerValue(
-                &WPD_PROPERTY_MTP_EXT_OPERATION_CODE,
-                operation.code() as u32,
-            )?;
-            p.SetIPortableDevicePropVariantCollectionValue(
-                &WPD_PROPERTY_MTP_EXT_OPERATION_PARAMS,
-                &collection,
-            )?;
+            p.SetUnsignedIntegerValue(&WPD_PROPERTY_MTP_EXT_OPERATION_CODE, operation.code() as u32)?;
+            p.SetIPortableDevicePropVariantCollectionValue(&WPD_PROPERTY_MTP_EXT_OPERATION_PARAMS, &collection)?;
             extra(p)
         })
     }
 
-    fn without_data(
-        &self,
-        operation: Operation,
-        parameters: &[u32],
-    ) -> windows::core::Result<Reply> {
-        let results = self.start(
-            &WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITHOUT_DATA_PHASE,
-            operation,
-            parameters,
-            |_| Ok(()),
-        )?;
+    fn without_data(&self, operation: Operation, parameters: &[u32]) -> windows::core::Result<Reply> {
+        let results =
+            self.start(&WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITHOUT_DATA_PHASE, operation, parameters, |_| Ok(()))?;
         response(&results, Vec::new())
     }
 
     fn reading(&self, operation: Operation, parameters: &[u32]) -> windows::core::Result<Reply> {
-        let started = self.start(
-            &WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITH_DATA_TO_READ,
-            operation,
-            parameters,
-            |_| Ok(()),
-        )?;
+        let started =
+            self.start(&WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITH_DATA_TO_READ, operation, parameters, |_| Ok(()))?;
         let context = unsafe { started.GetStringValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT)? };
-        let total = unsafe {
-            started.GetUnsignedLargeIntegerValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_TOTAL_DATA_SIZE)?
-        };
+        let total = unsafe { started.GetUnsignedLargeIntegerValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_TOTAL_DATA_SIZE)? };
 
         let mut data = Vec::with_capacity(total.min(16 * READ_CHUNK) as usize);
         // Keep reading until the promised size arrives or the camera runs dry, whichever comes first
@@ -181,50 +147,27 @@ impl WpdTransport {
             let scratch = vec![0u8; want as usize];
             let results = self.send(&WPD_COMMAND_MTP_EXT_READ_DATA, |p| unsafe {
                 p.SetStringValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT, PCWSTR(context.0))?;
-                p.SetUnsignedLargeIntegerValue(
-                    &WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_TO_READ,
-                    want,
-                )?;
+                p.SetUnsignedLargeIntegerValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_TO_READ, want)?;
                 p.SetBufferValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_DATA, &scratch)
             })?;
-            let read = unsafe {
-                results
-                    .GetUnsignedLargeIntegerValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_READ)?
-            };
+            let read = unsafe { results.GetUnsignedLargeIntegerValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_READ)? };
             if read == 0 {
                 break;
             }
-            data.extend_from_slice(
-                &take_buffer(&results, &WPD_PROPERTY_MTP_EXT_TRANSFER_DATA)?[..read as usize],
-            );
+            data.extend_from_slice(&take_buffer(&results, &WPD_PROPERTY_MTP_EXT_TRANSFER_DATA)?[..read as usize]);
         }
         self.finish(context, data)
     }
 
-    fn writing(
-        &self,
-        operation: Operation,
-        parameters: &[u32],
-        outgoing: &[u8],
-    ) -> windows::core::Result<Reply> {
-        let started = self.start(
-            &WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITH_DATA_TO_WRITE,
-            operation,
-            parameters,
-            |p| unsafe {
-                p.SetUnsignedLargeIntegerValue(
-                    &WPD_PROPERTY_MTP_EXT_TRANSFER_TOTAL_DATA_SIZE,
-                    outgoing.len() as u64,
-                )
-            },
-        )?;
+    fn writing(&self, operation: Operation, parameters: &[u32], outgoing: &[u8]) -> windows::core::Result<Reply> {
+        let started =
+            self.start(&WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITH_DATA_TO_WRITE, operation, parameters, |p| unsafe {
+                p.SetUnsignedLargeIntegerValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_TOTAL_DATA_SIZE, outgoing.len() as u64)
+            })?;
         let context = unsafe { started.GetStringValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT)? };
         self.send(&WPD_COMMAND_MTP_EXT_WRITE_DATA, |p| unsafe {
             p.SetStringValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT, PCWSTR(context.0))?;
-            p.SetUnsignedLargeIntegerValue(
-                &WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_TO_WRITE,
-                outgoing.len() as u64,
-            )?;
+            p.SetUnsignedLargeIntegerValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_TO_WRITE, outgoing.len() as u64)?;
             p.SetBufferValue(&WPD_PROPERTY_MTP_EXT_TRANSFER_DATA, outgoing)
         })?;
         self.finish(context, Vec::new())
@@ -250,20 +193,13 @@ impl Transport for WpdTransport {
         Ok(())
     }
 
-    fn transact(
-        &mut self,
-        operation: Operation,
-        parameters: &[u32],
-        phase: DataPhase<'_>,
-    ) -> Result<Reply> {
+    fn transact(&mut self, operation: Operation, parameters: &[u32], phase: DataPhase<'_>) -> Result<Reply> {
         let result = match phase {
             DataPhase::None => self.without_data(operation, parameters),
             DataPhase::Read => self.reading(operation, parameters),
             DataPhase::Write(outgoing) => self.writing(operation, parameters, outgoing),
         };
-        result.map_err(|e| {
-            PtpError::Transport(format!("WPD said {e} during 0x{:04X}", operation.code()))
-        })
+        result.map_err(|e| PtpError::Transport(format!("WPD said {e} during 0x{:04X}", operation.code())))
     }
 
     fn model_name(&self) -> Option<String> {
@@ -291,18 +227,11 @@ fn response(results: &IPortableDeviceValues, data: Vec<u8>) -> windows::core::Re
             .GetIPortableDevicePropVariantCollectionValue(&WPD_PROPERTY_MTP_EXT_RESPONSE_PARAMS)
             .and_then(|c| collection_to_u32s(&c))
             .unwrap_or_default();
-        Ok(Reply {
-            code,
-            data,
-            parameters,
-        })
+        Ok(Reply { code, data, parameters })
     }
 }
 
-fn take_buffer(
-    values: &IPortableDeviceValues,
-    key: &PROPERTYKEY,
-) -> windows::core::Result<Vec<u8>> {
+fn take_buffer(values: &IPortableDeviceValues, key: &PROPERTYKEY) -> windows::core::Result<Vec<u8>> {
     unsafe {
         let mut pointer = std::ptr::null_mut();
         let mut length = 0u32;
@@ -313,15 +242,10 @@ fn take_buffer(
     }
 }
 
-fn u32s_to_collection(
-    values: &[u32],
-) -> windows::core::Result<IPortableDevicePropVariantCollection> {
+fn u32s_to_collection(values: &[u32]) -> windows::core::Result<IPortableDevicePropVariantCollection> {
     unsafe {
-        let collection: IPortableDevicePropVariantCollection = CoCreateInstance(
-            &PortableDevicePropVariantCollection,
-            None,
-            CLSCTX_INPROC_SERVER,
-        )?;
+        let collection: IPortableDevicePropVariantCollection =
+            CoCreateInstance(&PortableDevicePropVariantCollection, None, CLSCTX_INPROC_SERVER)?;
         for &value in values {
             let mut item = PROPVARIANT::default();
             (*item.Anonymous.Anonymous).vt = VT_UI4;
@@ -332,9 +256,7 @@ fn u32s_to_collection(
     }
 }
 
-fn collection_to_u32s(
-    collection: &IPortableDevicePropVariantCollection,
-) -> windows::core::Result<Vec<u32>> {
+fn collection_to_u32s(collection: &IPortableDevicePropVariantCollection) -> windows::core::Result<Vec<u32>> {
     unsafe {
         // The metadata marks these out parameters const, but the driver writes through them
         let mut count = 0u32;

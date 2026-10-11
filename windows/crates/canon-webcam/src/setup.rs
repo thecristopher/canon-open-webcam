@@ -12,24 +12,21 @@ use anyhow::{Context, Result, bail};
 use canon_shm::{CAMERA_NAME, CLSID_STRING};
 use windows::Win32::Foundation::{CloseHandle, ERROR_FILE_NOT_FOUND};
 use windows::Win32::Media::MediaFoundation::{
-    MF_VERSION, MFCreateVirtualCamera, MFSTARTUP_FULL, MFShutdown, MFStartup,
-    MFVirtualCameraAccess_AllUsers, MFVirtualCameraLifetime_System,
-    MFVirtualCameraType_SoftwareCameraSource,
+    MF_VERSION, MFCreateVirtualCamera, MFSTARTUP_FULL, MFShutdown, MFStartup, MFVirtualCameraAccess_AllUsers,
+    MFVirtualCameraLifetime_System, MFVirtualCameraType_SoftwareCameraSource,
 };
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, IPersistFile};
 use windows::Win32::System::Registry::*;
 use windows::Win32::System::Threading::{
-    CREATE_NO_WINDOW, EVENT_MODIFY_STATE, GetExitCodeProcess, INFINITE, OpenEventW, SetEvent,
-    WaitForSingleObject,
+    CREATE_NO_WINDOW, EVENT_MODIFY_STATE, GetExitCodeProcess, INFINITE, OpenEventW, SetEvent, WaitForSingleObject,
 };
 use windows::Win32::UI::Shell::{
-    IShellLinkW, IsUserAnAdmin, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW,
-    ShellLink,
+    IShellLinkW, IsUserAnAdmin, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW, ShellLink,
 };
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 use windows_core::{HSTRING, Interface, PCWSTR, w};
 
-use crate::console::{tell, warn};
+use crate::console::tell;
 use crate::log::log;
 
 pub const APP_EXE: &str = "CanonWebcam.exe";
@@ -40,6 +37,10 @@ const UNINSTALL_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstal
 const RUN_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
 const RUN_VALUE: &str = "CanonWebcam";
 pub const QUIT_EVENT: PCWSTR = w!("Local\\CanonWebcamQuit");
+/// Passed by the sign in entry, so the app starts quietly in the tray instead of opening its window.
+pub const BACKGROUND_FLAG: &str = "--background";
+// Canon's EOS Webcam Utility keeps services running that grab the camera the moment it's plugged in
+const CANON_SERVICES: [&str; 3] = ["EWCService", "EWCPairingService", "EWCVirtualCameraService"];
 
 fn clsid_key() -> String {
     format!(r"SOFTWARE\Classes\CLSID\{CLSID_STRING}")
@@ -58,10 +59,7 @@ fn data_dir() -> PathBuf {
 }
 
 fn shortcut_path() -> PathBuf {
-    data_dir()
-        .parent()
-        .unwrap()
-        .join(r"Microsoft\Windows\Start Menu\Programs\Canon Webcam.lnk")
+    data_dir().parent().unwrap().join(r"Microsoft\Windows\Start Menu\Programs\Canon Webcam.lnk")
 }
 
 pub fn installed_exe() -> PathBuf {
@@ -74,9 +72,7 @@ pub fn is_installed() -> bool {
 
 /// True when this process is the copy in Program Files.
 pub fn running_installed_copy() -> bool {
-    let here = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.canonicalize().ok());
+    let here = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
     let there = installed_exe().canonicalize().ok();
     here.is_some() && here == there
 }
@@ -86,11 +82,9 @@ pub fn install(quiet: bool, elevated: bool) -> Result<()> {
         if elevated {
             bail!("still not an administrator after asking");
         }
-        run_elevated(&["install", "--elevated"])?;
+        request_install()?;
         // Back as the normal user: start the app so it owns the camera in this session
-        Command::new(installed_exe())
-            .spawn()
-            .context("couldn't start Canon Webcam")?;
+        start_app(false)?;
         tell(
             "Canon Webcam is installed and running. Pick \"Canon Webcam\" as the camera in Zoom, Teams, Meet or any other app.",
             quiet,
@@ -98,6 +92,25 @@ pub fn install(quiet: bool, elevated: bool) -> Result<()> {
         return Ok(());
     }
 
+    install_as_admin()
+}
+
+/// Asks Windows for admin and runs the install part that needs it. No dialogs, for the setup window.
+pub fn request_install() -> Result<()> {
+    run_elevated(&["install", "--elevated"])
+}
+
+/// Starts the installed app as the normal user, in the tray, or with its window open.
+pub fn start_app(show_window: bool) -> Result<()> {
+    let mut command = Command::new(installed_exe());
+    if !show_window {
+        command.arg(BACKGROUND_FLAG);
+    }
+    command.spawn().context("couldn't start Canon Webcam")?;
+    Ok(())
+}
+
+fn install_as_admin() -> Result<()> {
     log!("installing into {}", install_dir().display());
     let here = std::env::current_exe()?;
     let from = here.parent().context("exe has no folder")?;
@@ -118,51 +131,28 @@ pub fn install(quiet: bool, elevated: bool) -> Result<()> {
 
     // Somewhere the camera, running as LOCAL SERVICE, may write its log
     std::fs::create_dir_all(data_dir())?;
-    let _ = hidden("icacls")
-        .arg(data_dir())
-        .args(["/grant", "*S-1-5-19:(OI)(CI)M", "/q"])
-        .status();
+    let _ = hidden("icacls").arg(data_dir()).args(["/grant", "*S-1-5-19:(OI)(CI)M", "/q"]).status();
 
     let dll_path = dir.join(CAMERA_DLL);
     set_string(&clsid_key(), None, CAMERA_NAME)?;
-    set_string(
-        &format!(r"{}\InprocServer32", clsid_key()),
-        None,
-        &dll_path.to_string_lossy(),
-    )?;
-    set_string(
-        &format!(r"{}\InprocServer32", clsid_key()),
-        Some("ThreadingModel"),
-        "Both",
-    )?;
+    set_string(&format!(r"{}\InprocServer32", clsid_key()), None, &dll_path.to_string_lossy())?;
+    set_string(&format!(r"{}\InprocServer32", clsid_key()), Some("ThreadingModel"), "Both")?;
 
     register_virtual_camera().context("Windows wouldn't register the virtual camera")?;
+    if canon_utility_present() {
+        disable_canon_services();
+        log!("switched off Canon's EOS Webcam Utility services so they stop grabbing the camera");
+    }
 
     let exe = dir.join(APP_EXE);
-    set_string(RUN_KEY, Some(RUN_VALUE), &format!("\"{}\"", exe.display()))?;
+    set_string(RUN_KEY, Some(RUN_VALUE), &format!("\"{}\" {BACKGROUND_FLAG}", exe.display()))?;
     set_string(UNINSTALL_KEY, Some("DisplayName"), CAMERA_NAME)?;
-    set_string(
-        UNINSTALL_KEY,
-        Some("DisplayVersion"),
-        env!("CARGO_PKG_VERSION"),
-    )?;
+    set_string(UNINSTALL_KEY, Some("DisplayVersion"), env!("CARGO_PKG_VERSION"))?;
     set_string(UNINSTALL_KEY, Some("Publisher"), "canon-open-webcam")?;
-    set_string(
-        UNINSTALL_KEY,
-        Some("InstallLocation"),
-        &dir.to_string_lossy(),
-    )?;
+    set_string(UNINSTALL_KEY, Some("InstallLocation"), &dir.to_string_lossy())?;
     set_string(UNINSTALL_KEY, Some("DisplayIcon"), &exe.to_string_lossy())?;
-    set_string(
-        UNINSTALL_KEY,
-        Some("UninstallString"),
-        &format!("\"{}\" uninstall", exe.display()),
-    )?;
-    set_string(
-        UNINSTALL_KEY,
-        Some("QuietUninstallString"),
-        &format!("\"{}\" uninstall --quiet", exe.display()),
-    )?;
+    set_string(UNINSTALL_KEY, Some("UninstallString"), &format!("\"{}\" uninstall", exe.display()))?;
+    set_string(UNINSTALL_KEY, Some("QuietUninstallString"), &format!("\"{}\" uninstall --quiet", exe.display()))?;
     set_dword(UNINSTALL_KEY, "NoModify", 1)?;
     set_dword(UNINSTALL_KEY, "NoRepair", 1)?;
     if let Err(e) = create_shortcut(&exe, &shortcut_path()) {
@@ -172,26 +162,28 @@ pub fn install(quiet: bool, elevated: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn uninstall(quiet: bool, elevated: bool) -> Result<()> {
+pub fn uninstall(quiet: bool, elevated: bool, restore_canon: bool) -> Result<()> {
     if !is_admin() {
         if elevated {
             bail!("still not an administrator after asking");
         }
-        if !quiet
-            && !crate::console::attached()
-            && !crate::console::ask(
-                "Remove Canon Webcam? Your Canon and its settings stay as they are.",
-            )
-        {
-            return Ok(());
+        request_uninstall(restore_canon)?;
+        let mut message = String::from("Uninstalled. Everything Canon Webcam put on this PC is gone.");
+        if restore_canon {
+            message.push_str(" Canon's EOS Webcam Utility is back on.");
+        } else if canon_utility_present() {
+            message.push_str(" Canon's EOS Webcam Utility stays off. Run with --restore-canon to bring it back.");
         }
-        run_elevated(&["uninstall", "--elevated", "--quiet"])?;
-        tell("Canon Webcam is gone.", quiet);
+        tell(&message, quiet);
         return Ok(());
     }
 
     log!("uninstalling");
     ask_app_to_quit();
+    if restore_canon && canon_utility_present() {
+        restore_canon_services();
+        log!("turned Canon's EOS Webcam Utility services back on");
+    }
     if let Err(e) = remove_virtual_camera() {
         log!("removing the virtual camera: {e}");
     }
@@ -208,11 +200,77 @@ pub fn uninstall(quiet: bool, elevated: bool) -> Result<()> {
         // We can't delete the exe we're running from, so a detached shell does it once we've exited
         delete_after_exit(&dir)?;
     } else if dir.exists() {
-        std::fs::remove_dir_all(&dir)
-            .with_context(|| format!("couldn't remove {}", dir.display()))?;
+        std::fs::remove_dir_all(&dir).with_context(|| format!("couldn't remove {}", dir.display()))?;
     }
     log!("uninstalled");
     Ok(())
+}
+
+/// Asks Windows for admin and runs the uninstall part that needs it. No dialogs, for the uninstall window.
+pub fn request_uninstall(restore_canon: bool) -> Result<()> {
+    let mut args = vec!["uninstall", "--elevated", "--quiet"];
+    if restore_canon {
+        args.push("--restore-canon");
+    }
+    run_elevated(&args)
+}
+
+/// What uninstalling removes, for the uninstall window to show before anything happens.
+pub fn removal_list() -> Vec<String> {
+    vec![
+        format!("The app in {}", install_dir().display()),
+        format!("The \"{CAMERA_NAME}\" virtual camera"),
+        "Starting when you sign in, and the Start menu shortcut".into(),
+        format!("The camera's log in {}", data_dir().display()),
+    ]
+}
+
+pub fn starts_at_sign_in() -> bool {
+    get_string(RUN_KEY, RUN_VALUE).is_some()
+}
+
+/// The Windows build number, 22000 and up being Windows 11.
+pub fn windows_build() -> u32 {
+    get_string(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "CurrentBuildNumber")
+        .and_then(|build| build.parse().ok())
+        .unwrap_or(0)
+}
+
+/// The name apps list the virtual camera under, if Windows shows it to them.
+pub fn virtual_camera_visible() -> Option<String> {
+    crate::diagnose::camera_names().ok()?.into_iter().find(|name| name.starts_with(CAMERA_NAME))
+}
+
+/// True when Canon's EOS Webcam Utility is on this PC, so offering to bring it back makes sense.
+pub fn canon_utility_present() -> bool {
+    CANON_SERVICES.iter().any(|service| service_exists(service))
+}
+
+pub fn canon_services_disabled() -> bool {
+    CANON_SERVICES.iter().filter(|service| service_exists(service)).all(|service| {
+        hidden("sc")
+            .args(["qc", service])
+            .output()
+            .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("DISABLED"))
+    })
+}
+
+fn service_exists(service: &str) -> bool {
+    hidden("sc").args(["query", service]).output().is_ok_and(|out| out.status.success())
+}
+
+fn disable_canon_services() {
+    for service in CANON_SERVICES.iter().filter(|service| service_exists(service)) {
+        let _ = hidden("sc").args(["stop", service]).output();
+        let _ = hidden("sc").args(["config", service, "start=", "disabled"]).output();
+    }
+}
+
+fn restore_canon_services() {
+    for service in CANON_SERVICES.iter().filter(|service| service_exists(service)) {
+        let _ = hidden("sc").args(["config", service, "start=", "auto"]).output();
+        let _ = hidden("sc").args(["start", service]).output();
+    }
 }
 
 fn register_virtual_camera() -> Result<()> {
@@ -282,28 +340,23 @@ fn run_elevated(args: &[&str]) -> Result<()> {
         GetExitCodeProcess(info.hProcess, &mut code)?;
         let _ = CloseHandle(info.hProcess);
         if code != 0 {
-            bail!(
-                "the administrator step failed, see {}",
-                crate::log::path().display()
-            );
+            bail!("the administrator step failed, see {}", crate::log::path().display());
         }
     }
     Ok(())
 }
 
-/// Removes a folder a few seconds from now, from a detached shell, once this process has let go of it.
+/// Removes a folder from a detached shell once every process running from it has let go,
+/// retrying each second for up to a minute (the uninstall window may still be open from there).
 fn delete_after_exit(dir: &Path) -> Result<()> {
     use std::os::windows::process::CommandExt;
     // /s makes cmd strip only the outer quotes so the quoted path inside survives.
     // Rust's own argument quoting would turn those inner quotes into \" which cmd can't read.
+    let dir = dir.display();
     let script = format!(
-        "\"ping -n 4 127.0.0.1 >nul & rmdir /s /q \"{}\"\"",
-        dir.display()
+        "\"for /l %i in (1,1,60) do @(if exist \"{dir}\" (ping -n 2 127.0.0.1 >nul & rmdir /s /q \"{dir}\" 2>nul))\""
     );
-    hidden("cmd")
-        .args(["/d", "/s", "/c"])
-        .raw_arg(script)
-        .spawn()?;
+    hidden("cmd").args(["/d", "/s", "/c"]).raw_arg(script).spawn()?;
     Ok(())
 }
 
@@ -347,9 +400,7 @@ fn create_shortcut(target: &Path, link: &Path) -> Result<()> {
         let shell_link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
         shell_link.SetPath(&HSTRING::from(target.as_os_str()))?;
         shell_link.SetDescription(w!("Use your Canon as a webcam"))?;
-        shell_link
-            .cast::<IPersistFile>()?
-            .Save(&HSTRING::from(link.as_os_str()), true)?;
+        shell_link.cast::<IPersistFile>()?.Save(&HSTRING::from(link.as_os_str()), true)?;
     }
     Ok(())
 }
@@ -378,16 +429,9 @@ fn open_key(path: &str) -> Result<HKEY> {
 
 fn key_exists(path: &str) -> bool {
     let mut key = HKEY::default();
-    let found = unsafe {
-        RegOpenKeyExW(
-            HKEY_LOCAL_MACHINE,
-            &HSTRING::from(path),
-            None,
-            KEY_READ | KEY_WOW64_64KEY,
-            &mut key,
-        )
-    }
-    .is_ok();
+    let found =
+        unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, &HSTRING::from(path), None, KEY_READ | KEY_WOW64_64KEY, &mut key) }
+            .is_ok();
     if found {
         unsafe {
             let _ = RegCloseKey(key);
@@ -396,82 +440,64 @@ fn key_exists(path: &str) -> bool {
     found
 }
 
+fn get_string(path: &str, name: &str) -> Option<String> {
+    let mut buffer = vec![0u16; 1024];
+    let mut size = (buffer.len() * 2) as u32;
+    let result = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            &HSTRING::from(path),
+            &HSTRING::from(name),
+            RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,
+            None,
+            Some(buffer.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    };
+    if result.is_err() {
+        return None;
+    }
+    let length = (size as usize / 2).saturating_sub(1);
+    Some(String::from_utf16_lossy(&buffer[..length]))
+}
+
 fn set_string(path: &str, name: Option<&str>, value: &str) -> Result<()> {
     let key = open_key(path)?;
     let wide: Vec<u16> = value.encode_utf16().chain([0]).collect();
     let bytes = unsafe { std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2) };
     let name = name.map(HSTRING::from);
     let result = unsafe {
-        RegSetValueExW(
-            key,
-            name.as_ref().map_or(PCWSTR::null(), |n| PCWSTR(n.as_ptr())),
-            None,
-            REG_SZ,
-            Some(bytes),
-        )
+        RegSetValueExW(key, name.as_ref().map_or(PCWSTR::null(), |n| PCWSTR(n.as_ptr())), None, REG_SZ, Some(bytes))
     };
     unsafe {
         let _ = RegCloseKey(key);
     }
-    result
-        .ok()
-        .with_context(|| format!(r"couldn't write HKLM\{path}"))
+    result.ok().with_context(|| format!(r"couldn't write HKLM\{path}"))
 }
 
 fn set_dword(path: &str, name: &str, value: u32) -> Result<()> {
     let key = open_key(path)?;
-    let result = unsafe {
-        RegSetValueExW(
-            key,
-            &HSTRING::from(name),
-            None,
-            REG_DWORD,
-            Some(&value.to_le_bytes()),
-        )
-    };
+    let result = unsafe { RegSetValueExW(key, &HSTRING::from(name), None, REG_DWORD, Some(&value.to_le_bytes())) };
     unsafe {
         let _ = RegCloseKey(key);
     }
-    result
-        .ok()
-        .with_context(|| format!(r"couldn't write HKLM\{path}"))
+    result.ok().with_context(|| format!(r"couldn't write HKLM\{path}"))
 }
 
 fn delete_tree(path: &str) -> Result<()> {
     let result = unsafe { RegDeleteTreeW(HKEY_LOCAL_MACHINE, &HSTRING::from(path)) };
     if result.is_err() && result != ERROR_FILE_NOT_FOUND {
-        return result
-            .ok()
-            .with_context(|| format!(r"couldn't delete HKLM\{path}"));
+        return result.ok().with_context(|| format!(r"couldn't delete HKLM\{path}"));
     }
     Ok(())
 }
 
 fn delete_value(path: &str, name: &str) -> Result<()> {
-    let result = unsafe {
-        RegDeleteKeyValueW(
-            HKEY_LOCAL_MACHINE,
-            &HSTRING::from(path),
-            &HSTRING::from(name),
-        )
-    };
+    let result = unsafe { RegDeleteKeyValueW(HKEY_LOCAL_MACHINE, &HSTRING::from(path), &HSTRING::from(name)) };
     if result.is_err() && result != ERROR_FILE_NOT_FOUND {
-        return result
-            .ok()
-            .with_context(|| format!(r"couldn't delete HKLM\{path}\{name}"));
+        return result.ok().with_context(|| format!(r"couldn't delete HKLM\{path}\{name}"));
     }
     Ok(())
-}
-
-pub fn report(result: Result<()>, quiet: bool) -> i32 {
-    match result {
-        Ok(()) => 0,
-        Err(e) => {
-            log!("{e:#}");
-            warn(&format!("{e:#}"), quiet);
-            1
-        }
-    }
 }
 
 #[cfg(test)]
@@ -481,12 +507,24 @@ mod tests {
     // Slow (waits for the detached shell), so run it on purpose: cargo test -- --ignored
     #[test]
     #[ignore]
-    fn a_folder_with_spaces_is_removed_after_we_let_go() {
+    fn a_folder_with_spaces_is_removed_once_its_files_are_let_go() {
         let dir = std::env::temp_dir().join("Canon Webcam delete test");
         std::fs::create_dir_all(dir.join("inner")).unwrap();
-        std::fs::write(dir.join("inner").join("file.txt"), "x").unwrap();
+        // Hold a file open with no sharing for a few seconds, like a running exe in the folder.
+        // Rust shares delete access by default, which wouldn't stop anything.
+        use std::os::windows::fs::OpenOptionsExt;
+        let held = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(0)
+            .open(dir.join("inner").join("held.txt"))
+            .unwrap();
         delete_after_exit(&dir).unwrap();
-        std::thread::sleep(Duration::from_secs(7));
-        assert!(!dir.exists(), "{} should be gone", dir.display());
+        std::thread::sleep(Duration::from_secs(4));
+        assert!(dir.exists(), "nothing should go while a file is still open");
+        drop(held);
+        std::thread::sleep(Duration::from_secs(4));
+        assert!(!dir.exists(), "{} should be gone once it was let go", dir.display());
     }
 }

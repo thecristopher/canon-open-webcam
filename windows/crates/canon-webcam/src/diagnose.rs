@@ -19,10 +19,7 @@ pub fn list() -> Result<()> {
     }
     for device in devices {
         let tag = if device.is_canon() { "canon" } else { "     " };
-        println!(
-            "{tag}  {}  ({}, {})\n       {}",
-            device.name, device.manufacturer, device.description, device.id
-        );
+        println!("{tag}  {}  ({}, {})\n       {}", device.name, device.manufacturer, device.description, device.id);
     }
     Ok(())
 }
@@ -32,9 +29,7 @@ pub fn probe(out: &Path) -> Result<()> {
     let _com = ComApartment::enter()?;
     let devices = list_devices().context("couldn't ask Windows for portable devices")?;
     let Some(entry) = devices.iter().find(|d| d.is_canon()) else {
-        bail!(
-            "No Canon found. Turn the camera on, plug it in, and quit Canon Webcam and anything else using it"
-        );
+        bail!("No Canon found. Turn the camera on, plug it in, and quit Canon Webcam and anything else using it");
     };
     println!("Opening {}", entry.name);
     let transport = WpdTransport::open(entry).context("Windows wouldn't open the camera")?;
@@ -45,20 +40,14 @@ pub fn probe(out: &Path) -> Result<()> {
                 .filter(|op| !ops.contains(op))
                 .map(|op| format!("0x{op:04X}"))
                 .collect();
-            let note = if missing.is_empty() {
-                String::new()
-            } else {
-                format!(", missing {}", missing.join(" "))
-            };
+            let note = if missing.is_empty() { String::new() } else { format!(", missing {}", missing.join(" ")) };
             println!("Camera offers {} vendor operations{note}", ops.len());
         }
         Err(e) => println!("Couldn't list vendor operations ({e}), trying anyway"),
     }
 
     let mut camera = CanonCamera::new(transport);
-    camera
-        .connect()
-        .context("camera wouldn't enter remote mode")?;
+    camera.connect().context("camera wouldn't enter remote mode")?;
     println!("Connected to {}", camera.model());
     if let Some(battery) = camera.state().value(CanonProperty::Battery) {
         println!("Battery level code {battery}");
@@ -66,20 +55,14 @@ pub fn probe(out: &Path) -> Result<()> {
     if let Some(lens) = &camera.state().lens_name {
         println!("Lens {lens}");
     }
-    camera
-        .start_live_view()
-        .context("camera wouldn't start live view")?;
+    camera.start_live_view().context("camera wouldn't start live view")?;
     let started = Instant::now();
     let result = loop {
         match camera.next_frame() {
             Ok(Some(jpeg)) => break Ok(jpeg),
-            Ok(None) if started.elapsed() < Duration::from_secs(5) => {
-                std::thread::sleep(Duration::from_millis(30))
-            }
+            Ok(None) if started.elapsed() < Duration::from_secs(5) => std::thread::sleep(Duration::from_millis(30)),
             Ok(None) => {
-                break Err(anyhow::anyhow!(
-                    "camera never produced a frame in 5 seconds"
-                ));
+                break Err(anyhow::anyhow!("camera never produced a frame in 5 seconds"));
             }
             Err(e) => break Err(e.into()),
         }
@@ -87,69 +70,80 @@ pub fn probe(out: &Path) -> Result<()> {
     camera.disconnect();
     let jpeg = result?;
     std::fs::write(out, &jpeg).with_context(|| format!("couldn't write {}", out.display()))?;
-    println!(
-        "Saved a {} KB frame to {} after {} ms",
-        jpeg.len() / 1024,
-        out.display(),
-        started.elapsed().as_millis()
-    );
+    println!("Saved a {} KB frame to {} after {} ms", jpeg.len() / 1024, out.display(), started.elapsed().as_millis());
     Ok(())
 }
 
-/// Opens "Canon Webcam" the way Zoom would, reads frames for a few seconds and saves the last one.
-pub fn check(out: &Path) -> Result<()> {
-    let _com = ComApartment::enter()?;
-    unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL)? };
-    let result = unsafe { read_virtual_camera(out) };
-    unsafe {
-        let _ = MFShutdown();
+/// Media Foundation started for as long as this lives.
+pub struct MediaFoundation(#[allow(dead_code)] ComApartment);
+
+impl MediaFoundation {
+    pub fn start() -> Result<Self> {
+        let com = ComApartment::enter()?;
+        unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL)? };
+        Ok(Self(com))
     }
-    result
 }
 
-unsafe fn read_virtual_camera(out: &Path) -> Result<()> {
+impl Drop for MediaFoundation {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = MFShutdown();
+        }
+    }
+}
+
+/// Every camera apps can pick, by name. Media Foundation has to be running.
+pub fn video_devices() -> Result<Vec<(String, IMFActivate)>> {
     unsafe {
         let mut attributes = None;
         MFCreateAttributes(&mut attributes, 1)?;
         let attributes = attributes.context("no attributes")?;
-        attributes.SetGUID(
-            &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
-            &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
-        )?;
+        attributes.SetGUID(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID)?;
         let mut devices = std::ptr::null_mut();
         let mut count = 0u32;
         MFEnumDeviceSources(&attributes, &mut devices, &mut count)?;
-        let list = std::slice::from_raw_parts(devices, count as usize);
-
-        let mut names = Vec::new();
-        let mut ours = None;
-        for device in list.iter().flatten() {
+        let mut found = Vec::new();
+        for device in std::slice::from_raw_parts(devices, count as usize).iter().flatten() {
             let mut name = PWSTR::null();
             let mut length = 0;
-            if device
-                .GetAllocatedString(
-                    &MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
-                    &mut name,
-                    &mut length,
-                )
-                .is_ok()
-            {
-                let text = name.to_string().unwrap_or_default();
+            if device.GetAllocatedString(&MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &mut name, &mut length).is_ok() {
+                found.push((name.to_string().unwrap_or_default(), device.clone()));
                 CoTaskMemFree(Some(name.0 as _));
-                // Windows adds " (Windows Virtual Camera)" to the name we registered
-                if text.starts_with(CAMERA_NAME) {
-                    ours = Some(device.clone());
-                }
-                names.push(text);
             }
         }
         CoTaskMemFree(Some(devices as _));
-        println!("Cameras Windows sees: {}", names.join(", "));
-        let device =
-            ours.with_context(|| format!("\"{CAMERA_NAME}\" isn't among them. Is it installed?"))?;
+        Ok(found)
+    }
+}
 
+pub fn camera_names() -> Result<Vec<String>> {
+    let _mf = MediaFoundation::start()?;
+    Ok(video_devices()?.into_iter().map(|(name, _)| name).collect())
+}
+
+/// Opens "Canon Webcam" the way any app would. Media Foundation has to be running.
+pub fn open_virtual_camera() -> Result<(IMFMediaSource, IMFSourceReader)> {
+    // Windows adds " (Windows Virtual Camera)" to the name we registered
+    let device = video_devices()?
+        .into_iter()
+        .find(|(name, _)| name.starts_with(CAMERA_NAME))
+        .map(|(_, device)| device)
+        .with_context(|| format!("Windows doesn't list \"{CAMERA_NAME}\". Is it installed?"))?;
+    unsafe {
         let source: IMFMediaSource = device.ActivateObject()?;
         let reader = MFCreateSourceReaderFromMediaSource(&source, None)?;
+        Ok((source, reader))
+    }
+}
+
+/// Opens "Canon Webcam" the way Zoom would, reads frames for a few seconds and saves the last one.
+pub fn check(out: &Path) -> Result<()> {
+    let _mf = MediaFoundation::start()?;
+    let names: Vec<String> = video_devices()?.into_iter().map(|(name, _)| name).collect();
+    println!("Cameras Windows sees: {}", names.join(", "));
+    let (source, reader) = open_virtual_camera()?;
+    unsafe {
         let stream = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
         let media_type = reader.GetCurrentMediaType(stream)?;
         let size = media_type.GetUINT64(&MF_MT_FRAME_SIZE)?;
@@ -180,11 +174,7 @@ unsafe fn read_virtual_camera(out: &Path) -> Result<()> {
         let fps = frames as f64 / started.elapsed().as_secs_f64();
         println!("Read {frames} frames at {fps:.1} fps");
         if last.len() < width * height * 3 / 2 {
-            bail!(
-                "frame was {} bytes, expected {}",
-                last.len(),
-                width * height * 3 / 2
-            );
+            bail!("frame was {} bytes, expected {}", last.len(), width * height * 3 / 2);
         }
         save_nv12_as_bmp(&last, width, height, out)?;
         println!("Saved the last frame to {}", out.display());

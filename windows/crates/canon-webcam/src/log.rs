@@ -15,21 +15,19 @@ pub fn path() -> PathBuf {
 }
 
 pub fn write(message: &str) {
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    let line = format!("[{seconds}] {message}\n");
     if crate::console::attached() {
-        eprint!("{line}");
+        eprintln!("{message}");
     }
+    record(message);
+}
+
+/// Just the log file, for messages that already reach the person some other way.
+pub fn record(message: &str) {
+    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let line = format!("[{seconds}] {message}\n");
     let _ = std::fs::create_dir_all(folder());
     let too_big = std::fs::metadata(path()).is_ok_and(|m| m.len() > MAX_BYTES);
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(!too_big)
-        .write(true)
-        .truncate(too_big)
-        .open(path());
+    let file = std::fs::OpenOptions::new().create(true).append(!too_big).write(true).truncate(too_big).open(path());
     if let Ok(mut file) = file {
         let _ = file.write_all(line.as_bytes());
     }

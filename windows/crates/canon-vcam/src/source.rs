@@ -41,29 +41,18 @@ impl MediaSource {
 
             let media_type = nv12_type()?;
             let stream_descriptor = MFCreateStreamDescriptor(0, &[Some(media_type.clone())])?;
-            stream_descriptor
-                .GetMediaTypeHandler()?
-                .SetCurrentMediaType(&media_type)?;
+            stream_descriptor.GetMediaTypeHandler()?.SetCurrentMediaType(&media_type)?;
             stream_descriptor.SetGUID(&MF_DEVICESTREAM_STREAM_CATEGORY, &PINNAME_VIDEO_CAPTURE)?;
             stream_descriptor.SetUINT32(&MF_DEVICESTREAM_STREAM_ID, 0)?;
             stream_descriptor.SetUINT32(&MF_DEVICESTREAM_FRAMESERVER_SHARED, 1)?;
-            stream_descriptor.SetUINT32(
-                &MF_DEVICESTREAM_ATTRIBUTE_FRAMESOURCE_TYPES,
-                MFFrameSourceTypes_Color.0 as u32,
-            )?;
+            stream_descriptor
+                .SetUINT32(&MF_DEVICESTREAM_ATTRIBUTE_FRAMESOURCE_TYPES, MFFrameSourceTypes_Color.0 as u32)?;
 
-            let descriptor =
-                MFCreatePresentationDescriptor(Some(&[Some(stream_descriptor.clone())]))?;
+            let descriptor = MFCreatePresentationDescriptor(Some(&[Some(stream_descriptor.clone())]))?;
             descriptor.SelectStream(0)?;
 
             let object = ComObject::new(MediaSource {
-                inner: Mutex::new(Inner {
-                    queue: Some(queue),
-                    attributes,
-                    descriptor,
-                    stream: None,
-                    announced: false,
-                }),
+                inner: Mutex::new(Inner { queue: Some(queue), attributes, descriptor, stream: None, announced: false }),
             });
             let source: IMFMediaSource = object.to_interface::<IMFMediaSourceEx>().into();
             let stream = MediaStream::create(source.clone(), stream_descriptor)?;
@@ -73,12 +62,7 @@ impl MediaSource {
     }
 
     fn queue(&self) -> windows_core::Result<IMFMediaEventQueue> {
-        self.inner
-            .lock()
-            .unwrap()
-            .queue
-            .clone()
-            .ok_or_else(|| MF_E_SHUTDOWN.into())
+        self.inner.lock().unwrap().queue.clone().ok_or_else(|| MF_E_SHUTDOWN.into())
     }
 }
 
@@ -94,10 +78,7 @@ fn nv12_type() -> windows_core::Result<IMFMediaType> {
         media_type.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
         media_type.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_NV12)?;
         // Sizes and ratios pack two u32s into one u64, high half first
-        media_type.SetUINT64(
-            &MF_MT_FRAME_SIZE,
-            (u64::from(WIDTH) << 32) | u64::from(HEIGHT),
-        )?;
+        media_type.SetUINT64(&MF_MT_FRAME_SIZE, (u64::from(WIDTH) << 32) | u64::from(HEIGHT))?;
         media_type.SetUINT64(&MF_MT_FRAME_RATE, (u64::from(FPS) << 32) | 1)?;
         media_type.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1 << 32) | 1)?;
         media_type.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
@@ -110,22 +91,12 @@ fn nv12_type() -> windows_core::Result<IMFMediaType> {
 }
 
 impl IMFMediaEventGenerator_Impl for MediaSource_Impl {
-    fn GetEvent(
-        &self,
-        flags: MEDIA_EVENT_GENERATOR_GET_EVENT_FLAGS,
-    ) -> windows_core::Result<IMFMediaEvent> {
+    fn GetEvent(&self, flags: MEDIA_EVENT_GENERATOR_GET_EVENT_FLAGS) -> windows_core::Result<IMFMediaEvent> {
         // Never hold the lock here, GetEvent can block until something is queued
         unsafe { self.queue()?.GetEvent(flags.0) }
     }
-    fn BeginGetEvent(
-        &self,
-        callback: Ref<IMFAsyncCallback>,
-        state: Ref<IUnknown>,
-    ) -> windows_core::Result<()> {
-        unsafe {
-            self.queue()?
-                .BeginGetEvent(callback.as_ref(), state.as_ref())
-        }
+    fn BeginGetEvent(&self, callback: Ref<IMFAsyncCallback>, state: Ref<IUnknown>) -> windows_core::Result<()> {
+        unsafe { self.queue()?.BeginGetEvent(callback.as_ref(), state.as_ref()) }
     }
     fn EndGetEvent(&self, result: Ref<IMFAsyncResult>) -> windows_core::Result<IMFMediaEvent> {
         unsafe { self.queue()?.EndGetEvent(result.as_ref()) }
@@ -137,10 +108,7 @@ impl IMFMediaEventGenerator_Impl for MediaSource_Impl {
         status: windows_core::HRESULT,
         value: *const PROPVARIANT,
     ) -> windows_core::Result<()> {
-        unsafe {
-            self.queue()?
-                .QueueEventParamVar(met, extended, status, value)
-        }
+        unsafe { self.queue()?.QueueEventParamVar(met, extended, status, value) }
     }
 }
 
@@ -172,11 +140,7 @@ impl IMFMediaSource_Impl for MediaSource_Impl {
         }
         let stream = inner.stream.clone().ok_or(MF_E_SHUTDOWN)?;
         let stream_unknown: IUnknown = stream.to_interface();
-        let event = if inner.announced {
-            MEUpdatedStream
-        } else {
-            MENewStream
-        };
+        let event = if inner.announced { MEUpdatedStream } else { MENewStream };
         inner.announced = true;
         drop(inner);
 
@@ -197,14 +161,7 @@ impl IMFMediaSource_Impl for MediaSource_Impl {
         if let Some(stream) = stream {
             stream.stop()?;
         }
-        unsafe {
-            queue.QueueEventParamVar(
-                MESourceStopped.0 as u32,
-                &GUID::zeroed(),
-                S_OK,
-                std::ptr::null(),
-            )
-        }
+        unsafe { queue.QueueEventParamVar(MESourceStopped.0 as u32, &GUID::zeroed(), S_OK, std::ptr::null()) }
     }
 
     // A live camera can't pause

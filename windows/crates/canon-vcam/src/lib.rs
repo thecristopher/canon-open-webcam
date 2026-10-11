@@ -22,9 +22,7 @@ mod stream;
 mod exports {
     use std::ffi::c_void;
 
-    use windows::Win32::Foundation::{
-        CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATION, E_POINTER, S_FALSE,
-    };
+    use windows::Win32::Foundation::{CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATION, E_POINTER, S_FALSE};
     use windows::Win32::System::Com::{IClassFactory, IClassFactory_Impl};
     use windows_core::{BOOL, GUID, HRESULT, IUnknown, Interface, Ref, implement};
 
@@ -55,11 +53,7 @@ mod exports {
     }
 
     #[unsafe(no_mangle)]
-    extern "system" fn DllGetClassObject(
-        clsid: *const GUID,
-        riid: *const GUID,
-        ppv: *mut *mut c_void,
-    ) -> HRESULT {
+    extern "system" fn DllGetClassObject(clsid: *const GUID, riid: *const GUID, ppv: *mut *mut c_void) -> HRESULT {
         if clsid.is_null() || riid.is_null() || ppv.is_null() {
             return E_POINTER;
         }

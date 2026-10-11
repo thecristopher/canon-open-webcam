@@ -12,12 +12,7 @@ pub fn write(message: &str) {
     let line = format!("[{}] {message}\n", canon_shm::tick_ms());
     unsafe { OutputDebugStringW(&HSTRING::from(format!("CanonWebcam: {line}"))) };
     let too_big = std::fs::metadata(LOG_PATH).is_ok_and(|m| m.len() > MAX_BYTES);
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(!too_big)
-        .write(true)
-        .truncate(too_big)
-        .open(LOG_PATH);
+    let file = std::fs::OpenOptions::new().create(true).append(!too_big).write(true).truncate(too_big).open(LOG_PATH);
     if let Ok(mut file) = file {
         let _ = file.write_all(line.as_bytes());
     }

@@ -30,23 +30,15 @@ fn parse_record(kind: u32, record: &[u8]) -> Option<CameraEvent> {
     let property = u32_at(record, 8)?;
     if kind == CanonEvent::PropertyChanged as u32 {
         if record.len() == 16 {
-            return Some(CameraEvent::PropertyChanged {
-                property,
-                value: u32_at(record, 12)?,
-            });
+            return Some(CameraEvent::PropertyChanged { property, value: u32_at(record, 12)? });
         }
         if property == CanonProperty::LensName.code() {
-            return Some(CameraEvent::TextPropertyChanged {
-                property,
-                text: c_string(&record[12..]),
-            });
+            return Some(CameraEvent::TextPropertyChanged { property, text: c_string(&record[12..]) });
         }
         None
     } else if kind == CanonEvent::AvailableValuesChanged as u32 {
         let count = u32_at(record, 16)? as usize;
-        let choices = (0..count)
-            .filter_map(|i| u32_at(record, 20 + 4 * i))
-            .collect();
+        let choices = (0..count).filter_map(|i| u32_at(record, 20 + 4 * i)).collect();
         Some(CameraEvent::ChoicesChanged { property, choices })
     } else {
         None
@@ -76,28 +68,15 @@ mod tests {
     #[test]
     fn a_property_change_carries_its_new_value() {
         let blob = [record(&[0xC189, 0xD103, 0x58]), end_of_events()].concat();
-        assert_eq!(
-            parse_canon_events(&blob),
-            vec![CameraEvent::PropertyChanged {
-                property: 0xD103,
-                value: 0x58
-            }]
-        );
+        assert_eq!(parse_canon_events(&blob), vec![CameraEvent::PropertyChanged { property: 0xD103, value: 0x58 }]);
     }
 
     #[test]
     fn an_available_list_carries_every_choice() {
-        let blob = [
-            record(&[0xC18A, 0xD103, 3, 3, 0x48, 0x50, 0x58]),
-            end_of_events(),
-        ]
-        .concat();
+        let blob = [record(&[0xC18A, 0xD103, 3, 3, 0x48, 0x50, 0x58]), end_of_events()].concat();
         assert_eq!(
             parse_canon_events(&blob),
-            vec![CameraEvent::ChoicesChanged {
-                property: 0xD103,
-                choices: vec![0x48, 0x50, 0x58]
-            }]
+            vec![CameraEvent::ChoicesChanged { property: 0xD103, choices: vec![0x48, 0x50, 0x58] }]
         );
     }
 
@@ -110,10 +89,7 @@ mod tests {
         blob.extend(end_of_events());
         assert_eq!(
             parse_canon_events(&blob),
-            vec![CameraEvent::TextPropertyChanged {
-                property: 0xD1D8,
-                text: "Ranni's Moonlight 50mm".into()
-            }]
+            vec![CameraEvent::TextPropertyChanged { property: 0xD1D8, text: "Ranni's Moonlight 50mm".into() }]
         );
     }
 
@@ -125,19 +101,8 @@ mod tests {
 
     #[test]
     fn unknown_event_types_are_skipped_not_fatal() {
-        let blob = [
-            record(&[0xC1A7, 1, 2]),
-            record(&[0xC189, 0xD101, 0x30]),
-            end_of_events(),
-        ]
-        .concat();
-        assert_eq!(
-            parse_canon_events(&blob),
-            vec![CameraEvent::PropertyChanged {
-                property: 0xD101,
-                value: 0x30
-            }]
-        );
+        let blob = [record(&[0xC1A7, 1, 2]), record(&[0xC189, 0xD101, 0x30]), end_of_events()].concat();
+        assert_eq!(parse_canon_events(&blob), vec![CameraEvent::PropertyChanged { property: 0xD101, value: 0x30 }]);
     }
 
     #[test]

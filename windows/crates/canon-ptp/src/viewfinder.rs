@@ -31,18 +31,12 @@ mod tests {
     fn the_jpeg_record_is_found_after_others() {
         let mut blob = record(8, &[0xAA; 4]);
         blob.extend(record(1, &[0xFF, 0xD8, 0xFF, 0xD9]));
-        assert_eq!(
-            jpeg_from_viewfinder(&blob),
-            Some(&[0xFF, 0xD8, 0xFF, 0xD9][..])
-        );
+        assert_eq!(jpeg_from_viewfinder(&blob), Some(&[0xFF, 0xD8, 0xFF, 0xD9][..]));
     }
 
     #[test]
     fn type_eleven_also_carries_a_jpeg() {
-        assert_eq!(
-            jpeg_from_viewfinder(&record(11, &[1, 2])),
-            Some(&[1, 2][..])
-        );
+        assert_eq!(jpeg_from_viewfinder(&record(11, &[1, 2])), Some(&[1, 2][..]));
     }
 
     #[test]

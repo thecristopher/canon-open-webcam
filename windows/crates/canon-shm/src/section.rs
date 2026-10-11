@@ -1,16 +1,13 @@
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering, fence};
 
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HLOCAL, INVALID_HANDLE_VALUE,
-    LocalFree,
+    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HLOCAL, INVALID_HANDLE_VALUE, LocalFree,
 };
-use windows::Win32::Security::Authorization::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
-};
+use windows::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
 use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 use windows::Win32::System::Memory::{
-    CreateFileMappingW, FILE_MAP_READ, FILE_MAP_WRITE, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile,
-    OpenFileMappingW, PAGE_READWRITE, UnmapViewOfFile,
+    CreateFileMappingW, FILE_MAP_READ, FILE_MAP_WRITE, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, OpenFileMappingW,
+    PAGE_READWRITE, UnmapViewOfFile,
 };
 use windows::Win32::System::SystemInformation::GetTickCount64;
 use windows::core::w;
@@ -39,6 +36,8 @@ struct Header {
     consumer_tick: AtomicU64,
     /// When the engine last wrote anything, so the camera side can tell it's alive
     writer_tick: AtomicU64,
+    /// Frames per second the person picked: 30, 60, or 0 for every camera frame as it arrives
+    frame_rate: AtomicU32,
 }
 
 pub struct SharedFrames {
@@ -68,12 +67,7 @@ impl SharedFrames {
     fn create() -> windows::core::Result<Self> {
         unsafe {
             let mut descriptor = PSECURITY_DESCRIPTOR::default();
-            ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                SDDL,
-                SDDL_REVISION_1,
-                &mut descriptor,
-                None,
-            )?;
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(SDDL, SDDL_REVISION_1, &mut descriptor, None)?;
             let attributes = SECURITY_ATTRIBUTES {
                 nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
                 lpSecurityDescriptor: descriptor.0,
@@ -94,18 +88,13 @@ impl SharedFrames {
     }
 
     unsafe fn map(handle: HANDLE, created: bool) -> windows::core::Result<Self> {
-        let view =
-            unsafe { MapViewOfFile(handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, SECTION_BYTES) };
+        let view = unsafe { MapViewOfFile(handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, SECTION_BYTES) };
         if view.Value.is_null() {
             let error = windows::core::Error::from_thread();
             unsafe { CloseHandle(handle)? };
             return Err(error);
         }
-        let frames = Self {
-            handle,
-            view,
-            created,
-        };
+        let frames = Self { handle, view, created };
         let header = frames.header();
         if created || header.magic.load(Ordering::Acquire) != MAGIC {
             header.width.store(WIDTH, Ordering::Relaxed);
@@ -131,11 +120,7 @@ impl SharedFrames {
 
     /// Engine side: publish one NV12 frame.
     pub fn write_frame(&self, nv12: &[u8]) {
-        assert_eq!(
-            nv12.len(),
-            FRAME_BYTES,
-            "frame must be {WIDTH}x{HEIGHT} NV12"
-        );
+        assert_eq!(nv12.len(), FRAME_BYTES, "frame must be {WIDTH}x{HEIGHT} NV12");
         let header = self.header();
         let start = header.sequence.load(Ordering::Relaxed);
         let writing = start | 1;
@@ -159,13 +144,7 @@ impl SharedFrames {
                 }
                 return None;
             }
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    self.frame_ptr(),
-                    out.as_mut_ptr(),
-                    FRAME_BYTES.min(out.len()),
-                )
-            };
+            unsafe { std::ptr::copy_nonoverlapping(self.frame_ptr(), out.as_mut_ptr(), FRAME_BYTES.min(out.len())) };
             fence(Ordering::Acquire);
             if header.sequence.load(Ordering::Relaxed) == before {
                 return Some(before);
@@ -174,11 +153,23 @@ impl SharedFrames {
         None
     }
 
+    /// The newest frame's sequence, so the camera side can tell a fresh frame is waiting without copying it.
+    pub fn sequence(&self) -> u64 {
+        self.header().sequence.load(Ordering::Acquire)
+    }
+
+    /// Engine side: how fast the virtual camera should hand frames to apps.
+    pub fn set_frame_rate(&self, frames_per_second: u32) {
+        self.header().frame_rate.store(frames_per_second, Ordering::Release);
+    }
+
+    pub fn frame_rate(&self) -> u32 {
+        self.header().frame_rate.load(Ordering::Acquire)
+    }
+
     /// Camera side: an app just asked for a frame.
     pub fn touch_consumer(&self) {
-        self.header()
-            .consumer_tick
-            .store(tick_ms(), Ordering::Release);
+        self.header().consumer_tick.store(tick_ms(), Ordering::Release);
     }
 
     /// How long since an app last asked for a frame, or None if none ever did.
