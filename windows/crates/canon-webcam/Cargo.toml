@@ -1,0 +1,13 @@
+[package]
+name = "canon-webcam"
+description = "Use a Canon EOS camera as a webcam on Windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+canon-ptp.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+canon-wpd.workspace = true
