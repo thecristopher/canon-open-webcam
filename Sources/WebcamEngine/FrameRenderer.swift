@@ -25,8 +25,11 @@ public final class FrameRenderer {
     }
 
     public func render(jpeg: Data, options: FrameOptions) -> CVPixelBuffer? {
-        guard let image = Self.decode(jpeg) else { return nil }
-        return render(image, options: options)
+        // The camera loop runs on a bare thread, so without this every decoded frame leaks until the engine dies
+        autoreleasepool {
+            guard let image = Self.decode(jpeg) else { return nil }
+            return render(image, options: options)
+        }
     }
 
     /// Decodes right now instead of lazily, so a frame the camera mangled gets dropped here
@@ -89,9 +92,11 @@ public final class FrameRenderer {
 
     /// A fresh copy of a frame. The virtual camera quietly drops a buffer it was just handed, so repeats need their own.
     public func copy(_ frame: CVPixelBuffer) -> CVPixelBuffer? {
-        guard let buffer = makeBuffer() else { return nil }
-        context.render(CIImage(cvPixelBuffer: frame), to: buffer, bounds: CGRect(origin: .zero, size: outputSize), colorSpace: colorSpace)
-        return buffer
+        autoreleasepool {
+            guard let buffer = makeBuffer() else { return nil }
+            context.render(CIImage(cvPixelBuffer: frame), to: buffer, bounds: CGRect(origin: .zero, size: outputSize), colorSpace: colorSpace)
+            return buffer
+        }
     }
 
     /// A dark card with a message, shown whenever there's no live picture to send.

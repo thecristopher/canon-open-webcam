@@ -81,3 +81,36 @@ private let fullHD = CGSize(width: 1920, height: 1080)
     #expect(FrameRenderer.looksComplete(Data([0xFF, 0xD8, 0x00, 0x11, 0x22])) == false)
     #expect(FrameRenderer.looksComplete(Data([0xFF, 0xD8, 0x00, 0xFF, 0xD9])))
 }
+
+@Test func renderingFramesOnABareThreadDoesntPileUpMemory() throws {
+    let liveView = CIImage(color: .gray).cropped(to: CGRect(x: 0, y: 0, width: 1024, height: 576))
+    let jpeg = try #require(CIContext().jpegRepresentation(of: liveView, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!))
+    let renderer = FrameRenderer()
+    // The engine's camera loop has no autorelease pool of its own, so this mimics it
+    let renderAndRepeat = { (count: Int) in
+        onBareThread {
+            for _ in 0..<count {
+                if let frame = renderer.render(jpeg: jpeg, options: FrameOptions()) { _ = renderer.copy(frame) }
+            }
+        }
+    }
+    renderAndRepeat(50)
+    let warmedUp = memoryFootprint()
+    renderAndRepeat(500)
+    #expect(memoryFootprint() - warmedUp < 50_000_000)
+}
+
+private func onBareThread(_ work: @escaping () -> Void) {
+    let done = DispatchSemaphore(value: 0)
+    Thread { work(); done.signal() }.start()
+    done.wait()
+}
+
+private func memoryFootprint() -> Int {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+    _ = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+    }
+    return Int(info.phys_footprint)
+}
