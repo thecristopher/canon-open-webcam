@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Bump this for each release, it names the disk image and goes into every app's Info.plist
-VERSION="1.0"
+VERSION="1.1.1"
 DIST="dist"
 STAGE="$DIST/Canon Webcam"
 WORK="$DIST/.work"
@@ -48,7 +48,7 @@ make_app() {
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleVersion</key><string>2</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSCameraUsageDescription</key><string>$camera_reason</string>
