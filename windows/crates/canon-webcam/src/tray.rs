@@ -21,8 +21,9 @@ use windows_core::{HSTRING, w};
 
 use crate::control::ControlRequest;
 use crate::engine::{Engine, EngineConfig};
+use crate::icon::icon_rgba;
 use crate::log::log;
-use crate::panel::{CREDITS, PanelState, icon_rgba};
+use crate::panel::{CREDITS, PanelState};
 use crate::setup::QUIT_EVENT;
 
 const WM_TRAY: u32 = WM_APP + 1;

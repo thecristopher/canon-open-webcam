@@ -6,6 +6,7 @@ mod console;
 mod control;
 mod diagnose;
 mod engine;
+mod icon;
 mod log;
 mod options;
 mod panel;

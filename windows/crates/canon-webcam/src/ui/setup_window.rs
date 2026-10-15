@@ -6,7 +6,7 @@ use std::time::Duration;
 use eframe::egui::{self, Align, Color32, Layout, RichText, TextureHandle, TextureOptions, vec2};
 
 use super::style;
-use crate::panel::icon_rgba;
+use crate::icon::icon_rgba;
 use crate::setup;
 
 #[derive(Clone, PartialEq)]
