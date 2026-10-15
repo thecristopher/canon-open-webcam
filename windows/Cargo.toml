@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/canon-ptp", "crates/canon-shm", "crates/canon-vcam", "crates/canon-wpd", "crates/canon-webcam"]
 
 [workspace.package]
-version = "1.1.0"
+version = "1.1.2"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/thecristopher/canon-open-webcam"
