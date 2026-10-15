@@ -510,21 +510,21 @@ dependencies = [
 
 [[package]]
 name = "canon-ptp"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "canon-shm"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "windows",
 ]
 
 [[package]]
 name = "canon-vcam"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "canon-shm",
  "windows",
@@ -533,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "canon-webcam"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "anyhow",
  "canon-ptp",
@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "canon-wpd"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "canon-ptp",
  "windows",
