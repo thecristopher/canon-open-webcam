@@ -19,6 +19,9 @@ serde.workspace = true
 serde_json.workspace = true
 zune-jpeg.workspace = true
 
+[build-dependencies]
+png = "0.18.1"
+
 [target.'cfg(windows)'.dependencies]
 canon-wpd.workspace = true
 windows-core.workspace = true

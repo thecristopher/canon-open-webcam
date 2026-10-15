@@ -14,7 +14,7 @@ use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SW_RESTORE, SetForegroundWindow, ShowWindow};
 use windows_core::{HSTRING, w};
 
-use crate::panel::icon_rgba;
+use crate::icon::icon_rgba;
 
 const CAMERA_WINDOW_TITLE: &str = "Canon Webcam";
 

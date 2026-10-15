@@ -541,6 +541,7 @@ dependencies = [
  "canon-wpd",
  "eframe",
  "fast_image_resize",
+ "png",
  "serde",
  "serde_json",
  "windows",
