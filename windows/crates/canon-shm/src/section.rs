@@ -64,7 +64,8 @@ impl SharedFrames {
         }
     }
 
-    fn create() -> windows::core::Result<Self> {
+    /// Makes the section, which takes admin or a service.
+    pub fn create() -> windows::core::Result<Self> {
         unsafe {
             let mut descriptor = PSECURITY_DESCRIPTOR::default();
             ConvertStringSecurityDescriptorToSecurityDescriptorW(SDDL, SDDL_REVISION_1, &mut descriptor, None)?;

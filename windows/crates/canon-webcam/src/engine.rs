@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow, bail};
 use canon_ptp::{CameraSetting, CanonCamera};
 use canon_shm::{CAMERA_NAME, SharedFrames};
 use canon_wpd::{ComApartment, WpdTransport, list_devices};
-use windows::Win32::Foundation::{E_ACCESSDENIED, ERROR_BUSY, ERROR_SHARING_VIOLATION};
+use windows::Win32::Foundation::{E_ACCESSDENIED, ERROR_BUSY, ERROR_FILE_NOT_FOUND, ERROR_SHARING_VIOLATION};
 
 use crate::control::{ControlRequest, ControlResponse, EngineCommand, EngineStatus, PhaseKind, SettingStatus};
 use crate::log::log;
@@ -158,6 +158,8 @@ struct Runner {
     options: FrameOptions,
     picture: Picture,
     frames: Option<SharedFrames>,
+    /// Why the frame buffer last wouldn't open, so each new reason is logged once
+    frames_problem: Option<String>,
     camera: Option<CanonCamera<WpdTransport>>,
     phase: Phase,
     watching: bool,
@@ -186,6 +188,7 @@ impl Runner {
             options,
             picture: Picture::new(),
             frames: None,
+            frames_problem: None,
             camera: None,
             phase: Phase::Idle,
             watching: false,
@@ -236,10 +239,7 @@ impl Runner {
     fn update_watching(&mut self) {
         // Frame Server makes the buffer the first time an app opens the camera
         if self.frames.is_none() {
-            self.frames = SharedFrames::open_or_create().ok();
-            if let Some(frames) = &self.frames {
-                frames.set_frame_rate(self.options.frame_rate);
-            }
+            self.open_frames();
         }
         let watching =
             self.frames.as_ref().and_then(SharedFrames::consumer_idle_ms).is_some_and(|idle| idle < WATCHING_MS);
@@ -250,6 +250,40 @@ impl Runner {
             self.watching = watching;
             log!("{}", if watching { "An app opened the camera." } else { "No app is watching anymore." });
             self.publish();
+        }
+    }
+
+    /// Finds the buffer the virtual camera shares frames through. Not there yet is normal until an app opens
+    /// the camera, but one that's there and won't open means apps get the fallback frame forever, so say why.
+    fn open_frames(&mut self) {
+        let opened = SharedFrames::open().or_else(|e| {
+            if e.code() == ERROR_FILE_NOT_FOUND.to_hresult() {
+                // Only an admin may make it, which `start` from an admin terminal is
+                SharedFrames::create().map_err(|_| None)
+            } else {
+                Err(Some(e))
+            }
+        });
+        match opened {
+            Ok(frames) => {
+                frames.set_frame_rate(self.options.frame_rate);
+                log!(
+                    "{} the frame buffer the virtual camera reads from.",
+                    if frames.created() { "Made" } else { "Found" }
+                );
+                self.frames = Some(frames);
+                self.frames_problem = None;
+            }
+            Err(Some(e)) => {
+                let problem = e.message();
+                if self.frames_problem.as_ref() != Some(&problem) {
+                    log!(
+                        "The virtual camera's frame buffer is there but won't open, so apps only get the fallback frame: {problem}"
+                    );
+                    self.frames_problem = Some(problem);
+                }
+            }
+            Err(None) => {}
         }
     }
 
